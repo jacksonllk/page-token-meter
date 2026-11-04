@@ -1,0 +1,217 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Light mode is the default. Brand blue #2663eb is the context.dev logo colour. */
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --line: rgb(15 23 42 / 0.09);
+  --fg: #0b1220;
+  --muted: #4b5565;
+  --faint: #8a94a6;
+  --accent: #2663eb;
+  --accent-fg: #2663eb;
+  --accent-soft: rgb(38 99 235 / 0.08);
+  --track: rgb(15 23 42 / 0.08);
+  --code: #f3f5f8;
+  --code-dim: #a7b0bd;
+  color-scheme: light;
+}
+
+/* Dark mode: same blue for fills, a lighter tint of the same hue for blue text. */
+[data-theme="dark"] {
+  --bg: #05070b;
+  --panel: #0b0f17;
+  --line: rgb(255 255 255 / 0.08);
+  --fg: #e8ebf1;
+  --muted: #9aa3b2;
+  --faint: #5d6675;
+  --accent: #2663eb;
+  --accent-fg: #7fa3f3;
+  --accent-soft: rgb(127 163 243 / 0.12);
+  --track: rgb(255 255 255 / 0.1);
+  --code: #05080d;
+  --code-dim: #4a5260;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-track: var(--track);
+  --color-code: var(--code);
+  --color-code-dim: var(--code-dim);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* Every clickable thing shows the pointer. Tailwind v4 no longer sets this for buttons. */
+a[href],
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+[role="tab"],
+summary,
+label[for] {
+  cursor: pointer;
+}
+
+/* Real tokens behind the hero. They fade out towards the bottom, and dim behind the title and text
+   so the words in front stay easy to read. The two masks multiply. */
+.token-field {
+  mask-image:
+    linear-gradient(to bottom, black 0%, rgb(0 0 0 / 0.6) 45%, transparent 100%),
+    radial-gradient(ellipse 34rem 13rem at 50% 42%, rgb(0 0 0 / 0.25) 30%, black 100%);
+  mask-composite: intersect;
+}
+
+/* The hero background is full width. Clip it so the page never scrolls sideways. */
+html,
+body {
+  overflow-x: clip;
+}
+
+/* Section labels: the data font, small caps style. Prose uses Geist Sans, data uses Geist Mono. */
+.label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* New lines slide in fast. */
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.appear {
+  animation: appear 220ms ease-out both;
+}
+
+/* Results slide in from the side when opening a page from the site result, and back. */
+@keyframes slide-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes slide-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.slide-from-right {
+  animation: slide-from-right 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.slide-from-left {
+  animation: slide-from-left 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Placeholders that hold a value's space until it arrives, so nothing below moves. */
+@keyframes breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+.skeleton {
+  display: block;
+  border-radius: 4px;
+  background: var(--track);
+  animation: breathe 1.4s ease-in-out infinite;
+}
+
+/* A value replacing its placeholder fades in, without moving. */
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+.fade {
+  animation: fade 300ms ease-out both;
+}
+
+/* The squares of the reading-order map appear one after another, like a page being read. */
+@keyframes cell-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+.cell-in {
+  animation: cell-in 260ms ease-out both;
+}
+
+/* The dot next to a step that is running right now. */
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+.live-dot {
+  animation: blink 0.9s steps(2, jump-none) infinite;
+}
+
+/* The run header's 3×3 snake. Each square is the head, then fades over two steps, then waits for the next lap.
+   steps(1, end) jumps between keyframes with no easing, like an 8-bit game. 8 squares × 100ms = 0.8s a lap. */
+@keyframes snake {
+  0% {
+    opacity: 1;
+  }
+  12.5% {
+    opacity: 0.55;
+  }
+  25% {
+    opacity: 0.25;
+  }
+  37.5%,
+  100% {
+    opacity: 0.1;
+  }
+}
+.snake-cell {
+  animation: snake 0.8s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appear,
+  .live-dot,
+  .snake-cell,
+  .skeleton,
+  .fade,
+  .cell-in,
+  .slide-from-right,
+  .slide-from-left {
+    animation: none;
+  }
+}

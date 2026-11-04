@@ -1,0 +1,11 @@
+#!/bin/sh
+# Blocks commits that include saved page data or local notes. Both stay on this computer:
+# real context.dev responses in tests/fixtures/local, notes in docs/.
+# Turn on once per clone: git config core.hooksPath .githooks
+blocked=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^(tests/fixtures/|docs/)' | grep -v '^tests/fixtures/README.md$')
+if [ -n "$blocked" ]; then
+  echo "Commit blocked: these files must stay local (saved page data or notes):"
+  echo "$blocked"
+  echo "Saved pages go in tests/fixtures/local/. Notes stay in docs/. Git ignores both."
+  exit 1
+fi

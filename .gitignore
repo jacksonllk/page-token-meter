@@ -1,0 +1,44 @@
+# dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Vercel
+.vercel/
+
+# tests
+coverage/
+
+# env files (keep the example)
+.env
+.env.*
+!.env.example
+
+# Python venv for the one-time tokenizer check
+.venv/
+__pycache__/
+
+# OS and editor
+.DS_Store
+*.log
+
+# misc
+/build
+*.pem
+
+# Notes live outside this folder. Ignored in case a copy lands here.
+/docs/
+
+# Local AI assistant settings and notes, never in the repo. AGENTS.md is the shared guide.
+/CLAUDE.md
+/.claude/
+
+# Editor settings
+.vscode/
+
+# Saved context.dev responses with real page text. Local only, never in the public repo.
+/tests/fixtures/local/
