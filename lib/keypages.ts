@@ -24,126 +24,95 @@ const isRoot = (u: URL) => (u.pathname === "/" || u.pathname === "") && !u.searc
 const depth = (u: URL) => u.pathname.split("/").filter(Boolean).length;
 const onDocs = (u: URL) => /^docs\./i.test(u.hostname);
 
-// A page we could measure: from an llms.txt (with its link text and section heading) or from Map (address only).
-// order: the owner's order in the llms.txt; Map pages come after it.
+// A page we could measure, from Map or from the website's llms.txt.
+// listed: the llms.txt lists it, which wins a tie between two equal matches. order: its place in the list we got it from.
 interface Candidate {
   url: URL;
-  title?: string;
-  section?: string;
+  listed: boolean;
   order: number;
 }
 
-const path = (c: Candidate) => c.url.pathname.toLowerCase();
-// The main site (with or without www) or its docs subdomain.
+const path = (u: URL) => u.pathname.toLowerCase();
+// The main site (with or without www) or its docs subdomain. A merch shop's /products is not the product.
 const onSite = (u: URL, domain: string) => [domain, `www.${domain}`, `docs.${domain}`].includes(u.hostname.toLowerCase());
-const titled = (c: Candidate, re: RegExp) => re.test(c.title ?? "");
-const inSection = (c: Candidate, re: RegExp) => re.test(c.section ?? "");
-
-// The same page under two addresses: with or without www, a trailing slash or a .md ending.
-const pageKey = (u: URL) => `${u.hostname.toLowerCase().replace(/^www\./, "")}${u.pathname.toLowerCase().replace(/\.md$/, "").replace(/\/$/, "")}`;
+// The same page under two addresses: with or without www, a trailing slash, a .md ending or a query string.
+const pageKey = (u: URL) => `${u.hostname.toLowerCase().replace(/^www\./, "")}${path(u).replace(/\.md$/, "").replace(/\/$/, "")}`;
 
 // Pages an agent does not need to understand a product or business: forms, jobs, news, legal, status, indexes.
 // Docs subdomains keep paths like /account/credits: there they are documentation.
-function skipped(c: Candidate): boolean {
-  const first = path(c).split("/").filter(Boolean)[0] ?? "";
-  if (/^(status|app|dashboard|login|auth|accounts?)\./i.test(c.url.hostname)) return true;
-  if (/\/\.well-known\//.test(path(c)) || /sitemap/.test(path(c))) return true;
-  if (!onDocs(c.url) && /^(sign-?up|register|log-?in|sign-?in|account|careers|jobs|blog|news|press|status|legal|terms|privacy|cookies?)$/.test(first)) return true;
-  return titled(c, /^(sign ?up|log ?in|sign ?in|create (an |your )?account|careers|jobs|blog|terms|privacy|sitemap)\b/i);
+function skipped(u: URL): boolean {
+  const first = path(u).split("/").filter(Boolean)[0] ?? "";
+  if (/^(status|app|dashboard|login|auth|accounts?)\./i.test(u.hostname)) return true;
+  if (/\/\.well-known\//.test(path(u)) || /sitemap/.test(path(u)) || /\/llms(-[a-z]+)?\.txt$/.test(path(u))) return true;
+  return !onDocs(u) && /^(sign-?up|register|log-?in|sign-?in|account|careers|jobs|blog|news|press|status|legal|terms|privacy|cookies?)$/.test(first);
 }
 
 // Key pages in the order we pick them: what site owners put first in their llms.txt files, and what AI agents read
 // to understand a product or a business (research: page-token-meter-notes/key-pages-research.md, 5 Nov 2026).
 // One list for every kind of website. A role the website does not have is skipped, so a law firm's service pages,
 // About and Contact fill the places a developer tool gives to its docs and API reference.
-// at: the page's address says it plays the role, on the main site or its docs subdomain only (a merch shop's /products
-// is not the product). named: only its link text or llms.txt section says so, a weaker sign.
-// label: the row name for a page found by Map. A page from an llms.txt keeps its own link text.
-const ROLES: { label: string; max: number; at: (c: Candidate, domain: string) => boolean; named?: (c: Candidate) => boolean }[] = [
-  { label: "Home", max: 1, at: (c, domain) => isRoot(c.url) && (c.url.hostname === domain || c.url.hostname === `www.${domain}`) },
-  {
-    label: "Product",
-    max: 2,
-    at: (c) => !onDocs(c.url) && /^\/(products?|platform|features|services?|solutions)(\/[^/]+)?\/?$/.test(path(c)),
-    named: (c) => inSection(c, /\b(products?|services|features|solutions)\b/i),
-  },
+// Matched by address only, on the main site or its docs subdomain: addresses mean the same on every website.
+// Link text and llms.txt sections do not (5 Nov: PostHog's llms.txt filed its Slack app under products).
+const ROLES: { label: string; max: number; at: (u: URL, domain: string) => boolean }[] = [
+  { label: "Home", max: 1, at: (u, domain) => isRoot(u) && (u.hostname === domain || u.hostname === `www.${domain}`) },
+  { label: "Product", max: 2, at: (u) => !onDocs(u) && /^\/(products?|platform|features|services?|solutions)(\/[^/]+)?\/?$/.test(path(u)) },
   {
     label: "Docs",
     max: 1,
-    at: (c) => (onDocs(c.url) && isRoot(c.url)) || /^\/docs\/?$/.test(path(c)) || /^(\/docs)?\/(introduction|overview|quickstart|quick-start|getting-started|get-started)(\.md)?\/?$/.test(path(c)),
-    named: (c) => titled(c, /^(documentation|docs|quickstart|quick start|getting started|get started)$/i),
+    at: (u) => (onDocs(u) && isRoot(u)) || /^\/docs\/?$/.test(path(u)) || /^(\/docs)?\/(introduction|overview|quickstart|quick-start|getting-started|get-started)(\.md)?\/?$/.test(path(u)),
   },
-  { label: "Pricing", max: 1, at: (c) => /^\/(pricing|plans)(\.md)?\/?$/.test(path(c)), named: (c) => titled(c, /^(pricing|plans)\b/i) },
-  {
-    label: "API reference",
-    max: 1,
-    at: (c) => /^(\/docs)?\/(api-reference|api|reference)(\/|$|\.md)/.test(path(c)),
-    named: (c) => titled(c, /^api reference\b/i) || inSection(c, /\bapi (reference|endpoints)\b/i),
-  },
-  {
-    label: "Agent setup",
-    max: 1,
-    at: (c) => /\/(mcp|skills?|agents?)(\.md)?\/?$/.test(path(c)) || /\/auth\.md$/.test(path(c)),
-    named: (c) => titled(c, /\b(mcp|agents?|skills?)\b/i) || inSection(c, /\bagents?\b/i),
-  },
-  { label: "Integrations", max: 1, at: (c) => /^(\/docs)?\/(integrations|sdks?|libraries)(\.md)?\/?$/.test(path(c)), named: (c) => titled(c, /^(integrations|sdks?|libraries)\b/i) },
-  { label: "About", max: 1, at: (c) => /^\/(about|about-us|company|team)(\.md)?\/?$/.test(path(c)), named: (c) => titled(c, /^about\b/i) },
-  { label: "FAQ", max: 1, at: (c) => /^\/(faqs?|help)(\.md)?\/?$/.test(path(c)), named: (c) => titled(c, /^(faqs?|frequently asked|help)\b/i) },
-  { label: "Contact", max: 1, at: (c) => /^\/(contact|contact-us|locations?)(\.md)?\/?$/.test(path(c)), named: (c) => titled(c, /^contact\b/i) },
-  {
-    label: "Changelog",
-    max: 1,
-    at: (c) => /^(\/docs)?\/(changelog|releases|whats-new)(\.md)?\/?$/.test(path(c)),
-    named: (c) => titled(c, /^(changelog|release notes)\b/i),
-  },
-  { label: "Customers", max: 1, at: (c) => /^\/(customers|case-studies|stories)(\.md)?\/?$/.test(path(c)), named: (c) => titled(c, /^(customers|case studies)\b/i) },
-  {
-    label: "Security",
-    max: 1,
-    at: (c) => /^\/(security|trust)(\.md)?\/?$/.test(path(c)) || (/^trust\./i.test(c.url.hostname) && isRoot(c.url)),
-    named: (c) => titled(c, /^(security|trust)\b/i),
-  },
+  { label: "Pricing", max: 1, at: (u) => /^\/(pricing|plans)(\.md)?\/?$/.test(path(u)) },
+  { label: "API reference", max: 1, at: (u) => /^(\/docs)?\/(api-reference|api|reference)(\/|$|\.md)/.test(path(u)) },
+  { label: "Agent setup", max: 1, at: (u) => /\/(mcp|skills?|agents?)(\.md)?\/?$/.test(path(u)) || /\/auth\.md$/.test(path(u)) },
+  { label: "Integrations", max: 1, at: (u) => /^(\/docs)?\/(integrations|sdks?|libraries)(\.md)?\/?$/.test(path(u)) },
+  { label: "About", max: 1, at: (u) => /^\/(about|about-us|company|team)(\.md)?\/?$/.test(path(u)) },
+  { label: "FAQ", max: 1, at: (u) => /^\/(faqs?|help)(\.md)?\/?$/.test(path(u)) },
+  { label: "Contact", max: 1, at: (u) => /^\/(contact|contact-us|locations?)(\.md)?\/?$/.test(path(u)) },
+  { label: "Changelog", max: 1, at: (u) => /^(\/docs)?\/(changelog|releases|whats-new)(\.md)?\/?$/.test(path(u)) },
+  { label: "Customers", max: 1, at: (u) => /^\/(customers|case-studies|stories)(\.md)?\/?$/.test(path(u)) },
+  { label: "Security", max: 1, at: (u) => /^\/(security|trust)(\.md)?\/?$/.test(path(u)) || (/^trust\./i.test(u.hostname) && isRoot(u)) },
 ];
 
-// Picks up to max pages from the llms.txt pages and the Map pages together.
-// For each role in turn: address matches before name matches, then the shallowest page, then the owner's order.
-// The home page is always one of them. With an llms.txt, places left over go to its other pages, in the owner's order.
-function rank(domain: string, listed: Candidate[], mapped: URL[], max: number): KeyPage[] {
+// The usual address of each key page that has one. Map returns at most MAP_LIMIT addresses and can miss these,
+// so a website check asks the website directly whether they exist (free, lib/plain-fetch.ts pageExists).
+export const USUAL_ADDRESSES: [role: string, path: string][] = [
+  ["Docs", "/docs"],
+  ["Pricing", "/pricing"],
+  ["Integrations", "/integrations"],
+  ["About", "/about"],
+  ["FAQ", "/faq"],
+  ["Contact", "/contact"],
+  ["Changelog", "/changelog"],
+];
+
+// Picks up to max key pages from Map's addresses. listed: the pages the website's llms.txt lists. They are
+// candidates too (Map returns at most MAP_LIMIT addresses), and win a tie between two equally deep matches.
+// For each role in turn: the shallowest matching page first. The home page is always one of them.
+// When there is room, one docs article, so a docs site shows a typical page.
+export function pickKeyPages(domain: string, urls: string[], max = MAX_PAGES, listed: string[] = []): KeyPage[] {
+  const listedKeys = new Set(listed.flatMap((u) => (URL.canParse(u) ? [pageKey(new URL(u))] : [])));
   const seen = new Set<string>();
   const pool: Candidate[] = [];
-  for (const c of [...listed, ...mapped.map((url, i) => ({ url, order: listed.length + i }))]) {
-    const key = pageKey(c.url);
-    if (seen.has(key) || skipped(c)) continue;
+  for (const raw of [...urls, ...listed]) {
+    if (!URL.canParse(raw)) continue;
+    const url = new URL(raw);
+    const key = pageKey(url);
+    if (seen.has(key) || skipped(url) || !onSite(url, domain)) continue;
     seen.add(key);
-    pool.push(c);
+    pool.push({ url, listed: listedKeys.has(key), order: pool.length });
   }
-  const picked: { c: Candidate; label: string }[] = [];
-  const taken = new Set<string>();
+  const better = (a: Candidate, b: Candidate) => depth(a.url) - depth(b.url) || Number(b.listed) - Number(a.listed) || a.order - b.order;
+  const picked: KeyPage[] = [];
   for (const role of ROLES) {
-    const score = (c: Candidate) => (onSite(c.url, domain) && role.at(c, domain) ? 2 : role.named?.(c) ? 1 : 0);
-    const hits = pool
-      .filter((c) => !taken.has(c.url.href) && score(c) > 0)
-      .sort((a, b) => score(b) - score(a) || depth(a.url) - depth(b.url) || a.order - b.order);
-    for (const c of hits.slice(0, role.max)) {
-      picked.push({ c, label: role.label });
-      taken.add(c.url.href);
-    }
+    const hits = pool.filter((c) => !picked.some((p) => p.url === c.url.href) && role.at(c.url, domain)).sort(better);
+    for (const c of hits.slice(0, role.max)) picked.push({ role: role.label, url: c.url.href });
   }
-  // Map does not always list the home page, and an llms.txt often leaves it out. Always measure it.
-  if (!picked.some((p) => p.label === "Home")) picked.unshift({ c: { url: new URL(`https://${domain}/`), order: -1 }, label: "Home" });
-  for (const c of listed) if (!taken.has(c.url.href) && pool.includes(c)) picked.push({ c, label: "" });
-  return picked.slice(0, max).map(({ c, label }) => ({ role: c.title ?? label, url: c.url.href }));
-}
-
-// Our pick when a site has no llms.txt: the roles above, matched by address on the Map list.
-// Plus one docs article when there is room, so a docs site shows a typical page.
-export function pickKeyPages(domain: string, urls: string[], max = MAX_PAGES): KeyPage[] {
-  const parsed = urls.flatMap((url) => (URL.canParse(url) ? [new URL(url)] : []));
-  const picked = rank(domain, [], parsed, max);
-  const article = parsed
-    .filter((u) => !skipped({ url: u, order: 0 }) && !picked.some((p) => p.url === u.href) && ((/\/docs\//i.test(u.pathname) && depth(u) >= 3) || (onDocs(u) && depth(u) >= 2)))
-    .sort((a, b) => depth(a) - depth(b))[0];
-  if (article) picked.push({ role: "Docs article", url: article.href });
+  // Map does not always list the home page. Always measure it.
+  if (!picked.some((p) => p.role === "Home")) picked.unshift({ role: "Home", url: `https://${domain}/` });
+  const article = pool
+    .filter((c) => !picked.some((p) => p.url === c.url.href) && ((/\/docs\//i.test(c.url.pathname) && depth(c.url) >= 3) || (onDocs(c.url) && depth(c.url) >= 2)))
+    .sort(better)[0];
+  if (article) picked.push({ role: "Docs article", url: article.url.href });
   return picked.slice(0, max);
 }
 
@@ -157,37 +126,29 @@ export function llmsTxtCandidates(domain: string, urls: string[]): string[] {
 }
 
 // Reads an llms.txt (llmstxt.org): a "# Title" line, then sections of "- [Name](url)" links.
-// Returns up to max pages on this site, ranked by ROLES together with the Map pages (the owner's order fills the rest),
-// then up to MAX_FILES files in the owner's order. Sitemaps and data files are skipped,
+// Returns the pages it lists on this site (addresses only: they help pickKeyPages break ties), and up to MAX_FILES
+// files it links to (OpenAPI specs), measured apart. Sitemaps, data files and other llms.txt files are skipped,
 // and so is the "Optional" section, as the format allows.
-// Returns [] when the text does not look like an llms.txt, such as a "not found" page.
-// mapUrls: the website's addresses from Map, so key pages the llms.txt leaves out (often home and pricing) can still be picked.
-export function parseLlmsTxt(text: string, domain: string, max = MAX_PAGES, mapUrls: string[] = []): KeyPage[] {
+// null when the text does not look like an llms.txt, such as a "not found" page.
+export function parseLlmsTxt(text: string, domain: string): { pages: string[]; files: KeyPage[] } | null {
   const lines = text.split("\n").map((l) => l.trim());
-  if (!lines.find(Boolean)?.startsWith("# ")) return [];
-  const pages: Candidate[] = [];
+  if (!lines.find(Boolean)?.startsWith("# ")) return null;
+  const pages: string[] = [];
   const files: KeyPage[] = [];
-  const seen = new Set<string>();
-  let section = "";
   for (const line of lines) {
     if (/^##\s+optional\b/i.test(line)) break;
-    if (/^##\s/.test(line)) section = line.replace(/^#+\s*/, "");
     const link = line.match(/^[-*+]\s+\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/);
     if (!link || !URL.canParse(link[2])) continue;
     const url = new URL(link[2]);
     const host = url.hostname.toLowerCase();
     if (host !== domain && !host.endsWith(`.${domain}`)) continue;
-    if (seen.has(url.href)) continue;
-    seen.add(url.href);
     const kind = llmsEntryKind(url.href);
-    const title = link[1].replace(/\s+/g, " ").trim().slice(0, 60);
-    if (kind === "page") pages.push({ url, title, section, order: pages.length });
-    if (kind === "file" && files.length < MAX_FILES) files.push({ role: title, url: url.href, file: true });
+    if (kind === "page") pages.push(url.href);
+    if (kind === "file" && files.length < MAX_FILES && !files.some((f) => f.url === url.href)) {
+      files.push({ role: link[1].replace(/\s+/g, " ").trim().slice(0, 60), url: url.href, file: true });
+    }
   }
-  if (!pages.length) return [];
-  const ranked = rank(domain, pages, mapUrls.flatMap((u) => (URL.canParse(u) ? [new URL(u)] : [])), max);
-  // No pages at all (only files) does not count as a usable llms.txt.
-  return ranked.length ? [...ranked, ...files] : [];
+  return pages.length || files.length ? { pages, files } : null;
 }
 
 // Only public domain names: no IP addresses, no localhost, no private or internal names.

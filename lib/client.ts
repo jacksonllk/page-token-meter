@@ -1,6 +1,6 @@
 import ContextDev from "context.dev";
 import { fixtureClient } from "./fixture-client";
-import { plainFetch, type TextFetch } from "./plain-fetch";
+import { pageExists, plainFetch, type TextFetch } from "./plain-fetch";
 
 // Kill switch: set LIVE_CHECKS=off to stop every live context.dev call at once.
 export const liveChecksOff = () => process.env.LIVE_CHECKS === "off";
@@ -18,4 +18,9 @@ export function getClient() {
 // Direct downloads of llms.txt and published Markdown. Off in fixture mode, which never touches the network.
 export function getTextFetch(): TextFetch | undefined {
   return process.env.PTM_FIXTURES === "1" ? undefined : plainFetch;
+}
+
+// Direct checks that a page Map missed is there (/pricing). Off in fixture mode too.
+export function getPageCheck(): ((url: string) => Promise<boolean>) | undefined {
+  return process.env.PTM_FIXTURES === "1" ? undefined : pageExists;
 }

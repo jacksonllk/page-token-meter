@@ -5,7 +5,12 @@
 
 const MIN_SIZE = 64;
 
-const attr = (tag: string, name: string) => tag.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, "i"))?.[1];
+// An attribute's value, with the HTML entities that appear in addresses decoded ("&amp;" in a query string).
+const attr = (tag: string, name: string) =>
+  tag
+    .match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, "i"))?.[1]
+    ?.replace(/&amp;/g, "&")
+    .replace(/&#38;/g, "&");
 
 export function pickLogo(html: string, pageUrl: string): string | null {
   let base: URL;

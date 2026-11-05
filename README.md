@@ -1,48 +1,64 @@
-<img src="public/page-token-meter.png" alt="Page Token Meter logo" width="72">
-
-# Page Token Meter
-
-**See your website as AI agents see it.** Scan a URL to see the content AI agents get from your key pages and for how many tokens.
+<div align="center">
+  <img src="public/page-token-meter.png" alt="Page Token Meter logo" width="72">
+  <h1>Page Token Meter</h1>
+  <p><strong>See your website as AI agents see it.</strong> Scan a URL to see the content AI agents get from your key pages and for how many tokens.</p>
+  <p>
+    <a href="https://page-token-meter.vercel.app">Try it</a> ·
+    <a href="#how-it-works">How it works</a> ·
+    <a href="#run-locally">Run locally</a> ·
+    <a href="#api">API</a>
+  </p>
 
 [![Powered by context.dev](https://img.shields.io/badge/Powered%20by-context.dev-2663eb)](https://context.dev/?utm_source=page-token-meter&utm_medium=readme&utm_campaign=open-source)
-[![CI](https://github.com/jacksonllk/page-token-meter/actions/workflows/ci.yml/badge.svg)](https://github.com/jacksonllk/page-token-meter/actions/workflows/ci.yml)
 [![MIT licence](https://img.shields.io/badge/licence-MIT-green)](LICENSE)
 
-![Page Token Meter measuring the key pages of context.dev](demo/screenshot.png)
+</div>
 
-## Quickstart
+[![Page Token Meter measuring a website](demo/screenshot.png)](https://page-token-meter.vercel.app)
 
-You need Node.js 20.9 or later and a free [context.dev](https://context.dev/?utm_source=page-token-meter&utm_medium=readme&utm_campaign=open-source) account (1,000 credits a month, no card).
-
-```bash
-git clone https://github.com/jacksonllk/page-token-meter && cd page-token-meter
-cp .env.example .env   # then add your CONTEXT_DEV_API_KEY
-npm install && npm run dev
-```
-
-Open http://localhost:3000.
+Page Token Meter shows how many tokens an AI agent needs to read your website, and how much of that is your actual content. The hosted version is free at [page-token-meter.vercel.app](https://page-token-meter.vercel.app). It is built on [context.dev](https://context.dev/?utm_source=page-token-meter&utm_medium=readme&utm_campaign=open-source), which loads each page in a real browser and turns it into Markdown.
 
 ## What it does
 
-- **Whole website.** Finds your key pages, from your llms.txt or by their address. Shows the tokens for each page and the total. The hosted site measures up to 8 pages per check. Your own copy can measure more (see `MAX_KEY_PAGES`).
-- **One page.** Shows how many tokens an agent reads before, in and after the page's main content, with a heatmap of where the content sits.
-- **Markdown and llms.txt.** Checks whether your website publishes a Markdown version of the page and an llms.txt.
-- **Share links.** Every result has a link and a preview image for X, LinkedIn, Slack and the like. Open `page-token-meter.vercel.app/your-website.com` to measure a website straight from the address bar.
-- **JSON API.** Set a token budget and fail your CI when a page goes over it.
+- **Whole website.** Measures your key pages, such as home, pricing, docs and the API reference. Shows the tokens for each page and the total.
+- **One page.** Splits a page's tokens into what comes before, in and after its main content. A heatmap shows where the content sits.
+- **Markdown and llms.txt.** Checks whether your website publishes an llms.txt and a Markdown version of each page.
+- **Share links.** Every result gets a link with a preview image. To measure a website from the address bar, open `page-token-meter.vercel.app/your-website.com`.
+- **JSON API.** Set a token budget and fail CI when a page goes over it.
 
-## How we count
+## How it works
 
-- Tokens are counted with OpenAI's o200k tokenizer, run locally. The count is exact for the OpenAI models that use it, such as GPT-4o, GPT-4.1 and GPT-5.
-- We count the Markdown version of your page, made by context.dev. It loads each page in a real browser, so JavaScript-rendered pages count too.
-- Other models count differently. We do not guess those numbers.
+A whole-website check runs in four steps:
+
+1. The app lists up to 500 page addresses on your website.
+2. The app picks your key pages from those addresses. If your website has an llms.txt, the app also measures the files it links to, such as an OpenAPI spec.
+3. Each page is loaded in a full browser with its scripts running, the way a person sees it. Then it is turned into Markdown.
+4. The app counts the tokens in each page's Markdown and adds them up.
+
+A one-page check loads the page twice: once in full and once with only its main content. Matching the two shows what comes before, in and after the main content.
+
+- Tokens are counted with OpenAI's o200k tokenizer. The count is exact for the OpenAI models that use it, such as GPT-4o, GPT-4.1 and GPT-5.
+- Other models count differently. We don't estimate their numbers.
 - Pages change. Every result shows when it was measured.
+
+## Run locally
+
+You need Node.js 20.9 or later and a free [context.dev](https://context.dev/?utm_source=page-token-meter&utm_medium=readme&utm_campaign=open-source) API key (1,000 credits a month, no card).
+
+```bash
+git clone https://github.com/jacksonllk/page-token-meter && cd page-token-meter
+cp .env.example .env   # add your CONTEXT_DEV_API_KEY
+npm install && npm run dev
+```
+
+The app runs at http://localhost:3000.
 
 ## API
 
-Both routes return JSON. Add `maxTokens` to check a budget: `check.result` is `pass` or `fail`.
+`/api/measure` checks one page. `/api/site` checks a whole website. Both return JSON. Set `METER_URL` to your copy's address, such as `http://localhost:3000`.
 
 ```bash
-curl "http://localhost:3000/api/measure?url=docs.context.dev&maxTokens=3000"
+curl "$METER_URL/api/measure?url=docs.context.dev&maxTokens=3000"
 ```
 
 ```jsonc
@@ -61,7 +77,11 @@ curl "http://localhost:3000/api/measure?url=docs.context.dev&maxTokens=3000"
 }
 ```
 
-For a whole website, use `/api/site?domain=context.dev&maxTokens=50000`. The budget applies to the total of the key pages.
+`maxTokens` is optional. With it, the response includes `check.result`, which is `pass` or `fail`. For `/api/site`, the budget applies to the total of all key pages:
+
+```bash
+curl "$METER_URL/api/site?domain=context.dev&maxTokens=50000"
+```
 
 To fail a CI step when a page goes over budget:
 
@@ -69,48 +89,51 @@ To fail a CI step when a page goes over budget:
 curl -s "$METER_URL/api/measure?url=docs.example.com&maxTokens=3000" | jq -e '.check.result == "pass"'
 ```
 
-## How it uses context.dev
+## Credits
 
-| context.dev API | What we use it for |
-|---|---|
-| Scrape (`web.scrape`) | Each page as Markdown and HTML, and its main content only |
-| Map (`web.mapUrls`) | Finding the pages of a website |
+Each check spends credits on your API key.
 
 | Check | Credits |
 |---|---|
-| One page | 2 (full page, main content) |
-| Whole website | 1 for the map, plus 1 per key page. 11 at most with the default limit (8 pages and 2 files). |
+| One page | 2: the full page and its main content |
+| Whole website | 1 to list the addresses, plus 1 per page or file. Usually 11 or fewer with the default limit of 8 pages and 2 files. |
 
-A page's own Markdown file and a website's llms.txt are plain text, so the app downloads them directly for free. It asks context.dev (1 more credit each) only when a website blocks that download. Repeat checks within 24 hours come from the cache and cost nothing.
-
-context.dev loads each page in a real browser. We always ask for a fresh load (`maxAgeMs: 0`), so a result shows the page as it is now. By default context.dev would answer with a copy up to 3 days old. A fresh load costs the same credit. If context.dev still answers from its cache, that step shows "Cached copy" instead of a time.
+- The hosted site measures 8 pages per check. Your own copy can measure more with `MAX_KEY_PAGES`.
+- The app downloads llms.txt files and Markdown versions straight from the website, so they use no credits. If the website blocks the download, the app gets the file through context.dev instead, for 1 credit.
+- The address list holds 500 addresses at most, so it can miss a key page. When that happens, the app checks the page's usual address on the website itself, such as `/pricing` or `/docs`. That check uses no credits. If the page exists, measuring it costs 1 credit, like any other page.
+- Every page is loaded fresh, so a result shows the page as it is today.
+- Repeat checks within 24 hours come from the app's cache and cost nothing.
 
 ## Configuration
 
-Copy `.env.example` to `.env`. Only the key is required.
+Copy `.env.example` to `.env`. Only `CONTEXT_DEV_API_KEY` is required.
 
-| Variable | What it does |
-|---|---|
-| `CONTEXT_DEV_API_KEY` | Your context.dev API key. Required. |
-| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis for the 24-hour cache, share links and limits. Without them, these live in memory until the server restarts. |
-| `VISITOR_DAILY_CREDITS` | The most credits one visitor (IP address) can spend per day. Empty: no limit. |
-| `DAILY_CREDIT_CAP` | The most credits the whole website can spend per day. Empty: no limit. |
-| `MAX_KEY_PAGES` | The most pages a Whole website check measures. Default 8. Each page costs 1 credit. Without an llms.txt, the app's own pick finds 10 pages at most. |
-| `LIVE_CHECKS` | Set to `off` to stop all context.dev calls. Saved results are still served. |
+| Variable | What it does | Default |
+|---|---|---|
+| `CONTEXT_DEV_API_KEY` | Your context.dev API key. | Required |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis for the cache, share links and credit limits. | In memory, lost on restart |
+| `VISITOR_DAILY_CREDITS` | The most credits one visitor (IP address) can spend per day. | No limit |
+| `DAILY_CREDIT_CAP` | The most credits the whole site can spend per day. | No limit |
+| `MAX_KEY_PAGES` | The most pages a Whole website check measures. Each costs 1 credit. The app knows 15 types of key page. To add more, edit `ROLES` in `lib/keypages.ts`. | 8 |
+| `LIVE_CHECKS` | Set to `off` to stop all paid API calls. Saved results are still served. | On |
 
 ## Deploy your own
 
-1. Import this repo into [Vercel](https://vercel.com/new).
-2. Add `CONTEXT_DEV_API_KEY`.
-3. Optional: in the project's **Storage** tab, add **Upstash for Redis** and connect it. Vercel sets its variables for you.
-4. If your copy is public, set `VISITOR_DAILY_CREDITS` and `DAILY_CREDIT_CAP`. Every check spends your credits.
+Page Token Meter is a standard Next.js app. It runs on any host that supports Node.js 20.9 or later, or on your own server:
+
+```bash
+npm run build && npm start
+```
+
+1. Set `CONTEXT_DEV_API_KEY` on your host.
+2. Optional: add an [Upstash Redis](https://upstash.com) database and set its two variables. Results and limits then survive restarts.
+3. Before you make your copy public, set `VISITOR_DAILY_CREDITS` and `DAILY_CREDIT_CAP`. Every check spends your credits.
 
 ## Limitations
 
-- Token counts are for OpenAI's o200k tokenizer only.
-- The main content is context.dev's estimate. The split into before, main and after it is approximate.
-- We measure what an agent would read as Markdown. We don't claim how any particular agent reads a page.
-- We load every page in a real browser. An agent that fetches a page without running its scripts may get less text than we measure.
+- Token counts are based on OpenAI's o200k tokenizer only.
+- We find the main content inside the full page by matching it line by line, so the before, main and after split can be off by a few tokens.
+- We count each page after it has fully loaded in a browser, as Markdown. Tools that fetch pages another way may get a different count.
 
 ## Contributing
 

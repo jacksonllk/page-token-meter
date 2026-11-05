@@ -4,7 +4,8 @@
 
 First public release.
 
-- Whole website check: finds your key pages, from your llms.txt or by their address, and shows the tokens for each page and the total.
+- Whole website check: finds your key pages, such as home, pricing, docs and the API reference. Shows the tokens for each page and the total.
+- Measures files your llms.txt links to, like an OpenAPI spec. Their tokens are not added to the page total.
 - One page check: the tokens an agent reads before, in and after the main content, with a heatmap of where the content sits.
 - Checks whether a website publishes a Markdown version of the page and an llms.txt.
 - Every page is loaded fresh in a real browser through context.dev. Tokens are counted with OpenAI's o200k tokenizer.

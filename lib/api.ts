@@ -67,6 +67,8 @@ export interface Guard {
   liveOff?: boolean;
   // Downloads llms.txt and published Markdown directly, for free. Left out in tests and fixture mode.
   fetchText?: TextFetch;
+  // Checks directly, for free, that a page Map missed is there (/pricing). Left out in tests and fixture mode.
+  pageExists?: (url: string) => Promise<boolean>;
 }
 
 // The visitor's IP address. Vercel puts it first in x-forwarded-for.
@@ -174,7 +176,7 @@ export async function handleSiteStream(request: Request, client: SiteClient | nu
   if (!client) return noKey();
   const refused = await admit(guard);
   if (refused) return refused;
-  return eventStream((send) => live("site", domain, guard, client, (c) => measureSite(domain, c, { onEvent: send, fetchText: guard.fetchText })));
+  return eventStream((send) => live("site", domain, guard, client, (c) => measureSite(domain, c, { onEvent: send, fetchText: guard.fetchText, pageExists: guard.pageExists })));
 }
 
 // GET /api/measure?url=...&maxTokens=...
@@ -219,7 +221,7 @@ export async function handleSite(request: Request, client: SiteClient | null, gu
   if (refused) return refused;
 
   try {
-    const site = hit ?? (await live("site", domain, guard, client!, (c) => measureSite(domain, c, { fetchText: guard.fetchText })));
+    const site = hit ?? (await live("site", domain, guard, client!, (c) => measureSite(domain, c, { fetchText: guard.fetchText, pageExists: guard.pageExists })));
     const check =
       maxTokens === undefined
         ? undefined

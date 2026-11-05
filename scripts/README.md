@@ -17,6 +17,7 @@ Each one that calls context.dev spends credits on the key in your `.env`.
 |---|---|---|
 | `record-fixtures.ts` | docs.context.dev and context.dev/pricing: full page, main content and published Markdown. Also their token counts, in `recorded.json`. | 6 |
 | `record-site.mts` | One Whole site check of context.dev: the map, the llms.txt lookups and each key page. | Up to 13 |
+| `record-maps.mts` | Saves Map's address list and the llms.txt of each website you name. `tests/keypages-real.test.ts` uses them. Usage: `npx tsx --env-file=.env scripts/record-maps.mts posthog.com stripe.com`. | 1 per website |
 | `record-missing.mts` | Whatever offline mode still lacks when you open a page from the Whole site result. Lists it first, for free. Records it with `--record`. | 1 per missing response |
 | `tiktoken_check.py` | The same pages counted with OpenAI's own Python tokenizer, in `python-counts.json`. A test checks that our JavaScript tokenizer gives the same numbers. | 0 |
 

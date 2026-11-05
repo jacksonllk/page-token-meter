@@ -58,8 +58,9 @@ export function fixtureClient(): { web: Pick<Web, "scrape" | "mapUrls"> } {
 
   async function map({ domain }: { domain: string }) {
     await wait();
-    // A saved real map of context.dev, if one was recorded. Otherwise a short made-up list.
-    if (existsSync("tests/fixtures/local/map-context-dev.json")) return { ...load("map-context-dev"), domain };
+    // A saved real map of the website, if one was recorded (scripts/record-site.mts, record-maps.mts). Otherwise a short made-up list.
+    const saved = `map-${domain.replace(/\./g, "-")}`;
+    if (existsSync(`tests/fixtures/local/${saved}.json`)) return { ...load(saved), domain };
     return {
       domain,
       request_id: "fixture",

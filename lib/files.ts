@@ -22,11 +22,14 @@ export function fileType(url: string): string | null {
 
 // How Whole site treats an address from an llms.txt:
 // "page": a web page or a Markdown copy of one (.md). Counts towards the page total.
-// "file": an OpenAPI spec (.json, .yaml) or a long text file such as llms-full.txt. Listed apart from the pages.
-// "skip": sitemaps and feeds (.xml) and data (.csv). Made for crawlers and scripts, not for reading.
+// "file": an OpenAPI spec (.json, .yaml) or another text file. Listed apart from the pages.
+// "skip": sitemaps and feeds (.xml) and data (.csv), made for crawlers and scripts. And other llms.txt files
+// (llms.txt, llms-full.txt, llms-ctx.txt): indexes or whole-site dumps, not pages. Vercel's llms-full.txt was too big
+// to count within one check (5 Nov 2026).
 export function llmsEntryKind(url: string): "page" | "file" | "skip" {
   const type = fileType(url);
   if (type === "XML" || type === "CSV") return "skip";
+  if (/\/llms(-[a-z]+)?\.txt$/i.test(new URL(url).pathname)) return "skip";
   if (type === "JSON" || type === "YAML" || type === "text") return "file";
   return "page";
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type ContextDev from "context.dev";
 import type { SiteEvent } from "./events";
-import { llmsTxtCandidates, MAP_LIMIT, maxKeyPages, parseLlmsTxt, pickKeyPages, pool, type KeyPage } from "./keypages";
+import { llmsTxtCandidates, MAP_LIMIT, maxKeyPages, parseLlmsTxt, pickKeyPages, pool, USUAL_ADDRESSES, type KeyPage } from "./keypages";
 import { credits, FRESH, fromCache, MeasureError, size, TAGS, type TextSize } from "./measure";
 import { pickLogo } from "./logo";
 import type { TextFetch } from "./plain-fetch";
@@ -47,10 +47,19 @@ export async function measureSite(
   domain: string,
   client: SiteClient,
   // fetchText: download llms.txt directly (free), and ask context.dev only when that is blocked.
-  options: { pages?: KeyPage[]; source?: PageSource; llmsTxt?: string | null; maxAgeMs?: number; onEvent?: (e: SiteEvent) => void; fetchText?: TextFetch } = {},
+  // pageExists: check directly (free) that a page Map missed is there, such as /pricing.
+  options: {
+    pages?: KeyPage[];
+    source?: PageSource;
+    llmsTxt?: string | null;
+    maxAgeMs?: number;
+    onEvent?: (e: SiteEvent) => void;
+    fetchText?: TextFetch;
+    pageExists?: (url: string) => Promise<boolean>;
+  } = {},
 ): Promise<SiteResult> {
   // A fresh capture of every page, as in measure().
-  const { maxAgeMs = FRESH, onEvent, fetchText } = options;
+  const { maxAgeMs = FRESH, onEvent, fetchText, pageExists } = options;
   const max = maxKeyPages();
   const started = Date.now();
   const ms = () => Date.now() - started;
@@ -69,12 +78,11 @@ export async function measureSite(
     const urls = map.urls.map((u) => u.url);
 
     // Downloaded directly for free. 1 credit per place only when the download is blocked and we ask context.dev, 2 at most.
-    // The site's own list wins over our pick.
-    // An llms.txt can add up to MAX_FILES files on top of the pages.
+    // Its pages break ties in our pick. Its files (OpenAPI specs) are measured too, up to MAX_FILES.
+    let found: { pages: string[]; files: KeyPage[] } | null = null;
     for (const url of llmsTxtCandidates(domain, urls)) {
-      const listed = await readLlmsTxt(url, urls);
-      if (listed.length) {
-        pages = listed;
+      found = await readLlmsTxt(url);
+      if (found) {
         source = "llms.txt";
         llmsTxt = url;
         break;
@@ -82,21 +90,28 @@ export async function measureSite(
     }
     steps.llms = ms();
     onEvent?.({ type: "llms", ms: steps.llms, url: llmsTxt });
-    pages ??= pickKeyPages(domain, urls, max);
+    const listed = found?.pages ?? [];
+    let keyPages = pickKeyPages(domain, urls, max, listed);
+    // Map returns at most MAP_LIMIT addresses and can miss a key page. Ask the website directly, for free, whether each
+    // missing key page is at its usual address (/pricing, /docs...). The ones that exist join the pick.
+    const missing = USUAL_ADDRESSES.filter(([role]) => !keyPages.some((p) => p.role === role)).map(([, path]) => `https://${domain}${path}`);
+    const there = pageExists ? (await Promise.all(missing.map(async (url) => ((await pageExists(url)) ? url : null)))).filter((u) => u !== null) : [];
+    if (there.length) keyPages = pickKeyPages(domain, [...urls, ...there], max, listed);
+    pages = [...keyPages, ...(found?.files ?? [])];
   }
   const picked = ms();
   onEvent?.({ type: "picked", ms: picked, pages, source, max });
 
-  async function readLlmsTxt(url: string, urls: string[]): Promise<KeyPage[]> {
+  async function readLlmsTxt(url: string): Promise<{ pages: string[]; files: KeyPage[] } | null> {
     const got = await fetchText?.(url);
-    if (got?.status === "ok") return parseLlmsTxt(got.text, domain, max, urls);
-    if (got?.status === "missing") return [];
+    if (got?.status === "ok") return parseLlmsTxt(got.text, domain);
+    if (got?.status === "missing") return null;
     try {
       const res = await client.web.scrape({ url, formats: { markdown: true }, sharedParams: { mainContentOnly: false }, maxAgeMs, tags: TAGS });
       used += credits(res);
-      return res.markdown.success && res.markdown.data ? parseLlmsTxt(res.markdown.data, domain, max, urls) : [];
+      return res.markdown.success && res.markdown.data ? parseLlmsTxt(res.markdown.data, domain) : null;
     } catch {
-      return [];
+      return null;
     }
   }
 

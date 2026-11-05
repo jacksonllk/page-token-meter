@@ -139,3 +139,32 @@ export async function fetchImage(input: string): Promise<string | null> {
     return null;
   }
 }
+
+// Whether a page Map missed is there, such as /pricing, straight from the site: no credit. The same address checks as
+// plainFetch. Only a 200 at the same path counts: a redirect to the home page means the website has no such page.
+export async function pageExists(input: string): Promise<boolean> {
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    return false;
+  }
+  const wanted = url.pathname.replace(/\/$/, "");
+  const signal = AbortSignal.timeout(TIMEOUT_MS);
+  try {
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      if (!(await allowed(url))) return false;
+      const res = await fetch(url, { redirect: "manual", signal, headers: { "user-agent": `PageTokenMeter (+${REPO_URL})` } });
+      await res.body?.cancel();
+      const location = res.headers.get("location");
+      if (res.status >= 300 && res.status < 400 && location) {
+        url = new URL(location, url);
+        continue;
+      }
+      return res.status === 200 && url.pathname.replace(/\/$/, "") === wanted;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}

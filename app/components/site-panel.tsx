@@ -124,19 +124,7 @@ export function SitePanel({
         {pages.length > 0 && (
           <div className="mt-5 border-t border-line pt-4">
             <p className="label">Tokens per page</p>
-            {/* Who chose these pages: the site's own llms.txt, or our pick by address. */}
             <p className="mt-2 text-xs text-muted">
-              {run.picked?.source === "llms.txt" ? (
-                <>
-                  Key pages, chosen with help from your{" "}
-                  <a href={run.llms?.url ?? undefined} target="_blank" rel="noreferrer" className="text-accent-fg hover:underline">
-                    llms.txt
-                  </a>
-                  .
-                </>
-              ) : (
-                <>No llms.txt found, so we picked key pages by their address.</>
-              )}{" "}
               Each bar is the page&apos;s share of the total.{!shared && " Click a page to see what its tokens are spent on."}
             </p>
             <ul className="mt-3 space-y-3">
@@ -187,7 +175,7 @@ export function SitePanel({
             <StepRow
               n={3}
               name="Choose what to measure"
-              hint={run.picked?.source === "pick" ? "Pick key pages like home, pricing, docs and API reference." : "Pick key pages and files from llms.txt."}
+              hint="Pick key pages such as home, pricing, docs and the API reference."
               state={run.picked ? "done" : failed ? "failed" : "waiting"}
               startedAt={run.startedAt}
               ms={run.picked?.ms}
