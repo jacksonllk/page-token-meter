@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SITE_NAME } from "@/lib/links";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -15,10 +16,15 @@ const geistMono = Geist_Mono({
 // Share images need full URLs. Vercel sets VERCEL_PROJECT_PRODUCTION_URL (no https://). SITE_URL overrides it.
 const siteUrl = process.env.SITE_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
 
+const title = "Page Token Meter: see your website as AI agents see it";
+const description = "Scan a URL to see the content AI agents get from your key pages and for how many tokens. Open source, built with context.dev.";
+
+// A page that sets its own openGraph replaces this one, so each sets siteName too.
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "Page Token Meter: see your website as AI agents see it",
-  description: "Scan a URL to see the content AI agents get from your key pages and for how many tokens. Open source, built with context.dev.",
+  title,
+  description,
+  openGraph: { siteName: SITE_NAME, type: "website", title, description },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

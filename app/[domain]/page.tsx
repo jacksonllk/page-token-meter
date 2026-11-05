@@ -8,6 +8,7 @@ import { num } from "@/lib/format";
 import { websiteFrom } from "@/lib/keypages";
 import { latestSite } from "@/lib/results";
 import { getStore } from "@/lib/store";
+import { SITE_NAME } from "@/lib/links";
 
 // "/stripe.com": the home page, measuring that website at once. A saved result comes back instantly, with 0 credits.
 // The readable address is also the link people share and type.
@@ -28,7 +29,7 @@ export async function generateMetadata({ params }: PageProps<"/[domain]">): Prom
     ? `${domain}: ${num(result.totalMarkdownTokens)} tokens to read its key pages`
     : `How does an AI agent read ${domain}?`;
   const description = "See the content AI agents get from its key pages and for how many tokens. Free and open source.";
-  return { title: `${title} · Page Token Meter`, description, openGraph: { title, description }, twitter: { card: "summary_large_image", title, description } };
+  return { title: `${title} · Page Token Meter`, description, openGraph: { siteName: SITE_NAME, type: "website", title, description }, twitter: { card: "summary_large_image", title, description } };
 }
 
 // Also marks the page as rendered per request, which the metadata above needs (it reads saved results).

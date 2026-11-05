@@ -6,5 +6,7 @@ export function contextDevLink(spot: LinkSpot): string {
 }
 
 export const REPO_URL = "https://github.com/jacksonllk/page-token-meter";
+// The name in link previews (og:site_name): Discord and others show it above the title.
+export const SITE_NAME = "Page Token Meter";
 // The maker, credited in the footer.
 export const MAKER = { name: "Jackson Ling", url: "https://x.com/jackson_llk" };
