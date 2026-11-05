@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleMeasure, handleMeasureStream, handleSiteStream, type Guard } from "@/lib/api";
 import { websiteFrom } from "@/lib/keypages";
 import { addCredits, limitReached } from "@/lib/limits";
-import type { ScrapeClient } from "@/lib/measure";
-import { cached, latestSite, sharedResult, updateChip } from "@/lib/results";
-import type { SiteClient, SiteResult } from "@/lib/site";
+import type { Measurement, ScrapeClient } from "@/lib/measure";
+import { cached, chipSaved, latestSite, saveResult, sharedResult } from "@/lib/results";
+import type { SiteClient } from "@/lib/site";
 import { memoryStore, type Store } from "@/lib/store";
 import { exampleClient, fakeResponse } from "./helpers/fake-client";
 
@@ -198,7 +198,7 @@ describe("hosted demo (limits set)", () => {
     await addCredits(store, "5.6.7.8", 100);
     const refused = await pageStream(store, "?url=example.com/new");
     expect(refused.status).toBe(503);
-    expect((await refused.json()).code).toBe("DEMO_LIMIT");
+    expect(await refused.json()).toMatchObject({ code: "DAILY_CAP", error: expect.stringMatching(/^Today's free checks are used up\./) });
   });
 });
 
@@ -229,53 +229,61 @@ describe("try chips", () => {
   const run = (store: Store, client: SiteClient, fresh = false) =>
     handleSiteStream(new Request(`http://localhost/api/site/stream?domain=stripe.com${fresh ? "&fresh=1" : ""}`), client, { store }).then(events);
 
-  it("keeps a chip's result after the 24-hour cache expires", async () => {
+  it("serves a chip's saved result for a week, then the next click runs a live check", async () => {
     let now = Date.UTC(2026, 10, 6);
     const store = memoryStore(() => now);
-    const words = { n: 100 };
-    const { client, scrapes } = chipSite(words);
-    const first = await run(store, client);
+    const { client, scrapes } = chipSite({ n: 100 });
+    const first = (await run(store, client)).at(-1).result;
     const used = scrapes();
-    now += 3 * 24 * HOUR;
+    now += 6 * 24 * HOUR;
     const later = await run(store, client);
     expect(scrapes()).toBe(used);
     expect(later.map((e) => e.type)).toEqual(["done"]);
-    expect(later[0].result.id).toBe(first.at(-1).result.id);
+    expect(later[0].result.id).toBe(first.id);
+    now += 2 * 24 * HOUR;
+    const refreshed = (await run(store, client)).at(-1).result;
+    expect(scrapes()).toBeGreaterThan(used);
+    expect(refreshed.id).not.toBe(first.id);
   });
 
-  it("replaces a chip's result on Measure again only when the total moves more than 10%", async () => {
-    const store = memoryStore();
-    const words = { n: 100 };
-    const { client } = chipSite(words);
-    const first = (await run(store, client)).at(-1).result;
-
-    words.n = 105;
-    await run(store, client, true);
-    expect((await run(store, client))[0].result.id).toBe(first.id);
-
-    words.n = 150;
-    const moved = (await run(store, client, true)).at(-1).result;
-    expect((await run(store, client))[0].result.id).toBe(moved.id);
-  });
-
-  it("replaces a chip's result when its pages change, whatever the total", async () => {
-    const store = memoryStore();
-    const old = { id: "old", domain: "stripe.com", pages: [{ role: "Sign Up", url: "https://stripe.com/signup" }], totalMarkdownTokens: 100 };
-    await store.set("chip:site:stripe.com", old);
-    const changed = { ...old, id: "new", pages: [{ role: "Home", url: "https://stripe.com/" }] };
-    expect(await updateChip(store, "stripe.com", changed as unknown as SiteResult)).toBe(true);
-    expect(await store.get("chip:site:stripe.com")).toMatchObject({ id: "new" });
-    expect(await updateChip(store, "stripe.com", { ...changed, id: "same" } as unknown as SiteResult)).toBe(false);
-  });
-
-  it("makes a chip from a result already in the cache, with no new calls", async () => {
+  it("ignores Measure again on a chip within its week", async () => {
     const store = memoryStore();
     const { client, scrapes } = chipSite({ n: 100 });
-    // Measured before stripe.com was a chip: only the 24-hour cache holds it.
-    await store.set("cache:site:stripe.com", { id: "x", totalMarkdownTokens: 10 }, 60);
-    await run(store, client);
-    expect(scrapes()).toBe(0);
-    expect(await store.get("chip:site:stripe.com")).toMatchObject({ id: "x" });
+    const first = (await run(store, client)).at(-1).result;
+    const used = scrapes();
+    const again = await run(store, client, true);
+    expect(scrapes()).toBe(used);
+    expect(again[0].result.id).toBe(first.id);
+  });
+
+  it("does not serve a chip result older than a week, even if the store kept it", async () => {
+    const store = memoryStore();
+    const old = { id: "old", domain: "stripe.com", measuredAt: new Date(Date.now() - 8 * 24 * HOUR).toISOString() };
+    await store.set("chip:site:stripe.com", old);
+    expect(await chipSaved(store, "site", "stripe.com")).toBeNull();
+  });
+
+  it("saves a chip website's page for a week with its page text", async () => {
+    let now = Date.UTC(2026, 10, 6);
+    const store = memoryStore(() => now);
+    const url = "https://stripe.com/pricing";
+    const result = { id: "p1", url, measuredAt: new Date().toISOString(), preview: [{ main: true, text: "Pricing" }], readingOrder: [] } as unknown as Measurement;
+    await saveResult(store, "page", url, result);
+    now += 3 * 24 * HOUR;
+    expect(await cached(store, "page", url)).toBeNull();
+    expect(await chipSaved(store, "page", url)).toMatchObject({ id: "p1", preview: [{ text: "Pricing" }] });
+    now += 5 * 24 * HOUR;
+    expect(await chipSaved(store, "page", url)).toBeNull();
+  });
+
+  it("keeps other websites' pages for 24 hours only", async () => {
+    let now = Date.UTC(2026, 10, 6);
+    const store = memoryStore(() => now);
+    const url = "https://example.com/pricing";
+    await saveResult(store, "page", url, { id: "p2", url, measuredAt: new Date().toISOString(), preview: [], readingOrder: null } as unknown as Measurement);
+    expect(await chipSaved(store, "page", url)).toBeNull();
+    now += 25 * HOUR;
+    expect(await cached(store, "page", url)).toBeNull();
   });
 });
 

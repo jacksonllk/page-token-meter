@@ -66,12 +66,13 @@ export function Seconds({ startedAt, ms, running, className = "" }: { startedAt:
 export type StepState = "waiting" | "live" | "done" | "failed" | "skipped" | "unsaved";
 
 // Column header for a step list. Times show when each step finished, counted from the start.
-export function StepHeader() {
+// saved: the result was measured earlier (cache, chip or share link), so the times are from that check, not this visit.
+export function StepHeader({ saved = false }: { saved?: boolean }) {
   return (
     <div className="flex items-center gap-3 pb-1 text-[11px] text-faint">
       <span className="w-5" />
       <span className="flex-1">Step</span>
-      <span className="w-20 text-right whitespace-nowrap">Finished in</span>
+      <span className="shrink-0 text-right whitespace-nowrap">{saved ? "Time taken to measure" : "Finished in"}</span>
       <span className="w-4" />
     </div>
   );
@@ -144,18 +145,21 @@ function ScanMark() {
   );
 }
 
-// Run header: status on the left, elapsed time on the right. A saved result shows the time of the check that made it,
-// or none when it has no times (finishedAt equals startedAt).
+// Run header: status on the left, elapsed time on the right while a check runs and once it is done.
+// saved: the result was measured earlier (cache, chip or share link). It says so and shows no elapsed time:
+// nothing ran on this visit. Its step times stay, under "Time taken to measure".
 export function RunHeader({
   running,
   failed,
   startedAt,
   finishedAt,
+  saved = false,
 }: {
   running: boolean;
   failed: boolean;
   startedAt: number;
   finishedAt?: number;
+  saved?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between">
@@ -165,10 +169,12 @@ export function RunHeader({
         <span className="label inline-flex items-center gap-2 !text-accent-fg">
           <ScanMark /> Measuring
         </span>
+      ) : saved ? (
+        <span className="label">● Saved result</span>
       ) : (
         <span className="label">● Complete</span>
       )}
-      {(running || (finishedAt ?? startedAt) > startedAt) && (
+      {!saved && (running || (finishedAt ?? startedAt) > startedAt) && (
         <span className="flex items-baseline gap-2">
           <span className="label">Elapsed</span>
           <Seconds startedAt={startedAt} ms={finishedAt ? finishedAt - startedAt : undefined} running={running} className="text-xs font-medium" />

@@ -11,26 +11,39 @@ import { PagePanel } from "./page-panel";
 import { applyPageEvent, applySiteEvent, readEvents, type ApiError, type PageRun, type SiteRun } from "./runs";
 import { SitePanel } from "./site-panel";
 
-// Shown when a visitor or the whole site has used up today's credits, or live checks are off. The message comes from the API.
-function LimitReached({ message }: { message: string }) {
+// Shown when a visitor has used their free checks (VISITOR_LIMIT), the whole site's daily cap is reached (DAILY_CAP),
+// or new checks are paused (DEMO_LIMIT: LIVE_CHECKS=off or context.dev out of credits).
+// Never says what the limits are or when they reset.
+const HEADING: Record<string, string> = {
+  VISITOR_LIMIT: "You've used your free checks for now.",
+  DAILY_CAP: "Today's free checks are used up.",
+  DEMO_LIMIT: "New checks are paused for now.",
+};
+
+function LimitReached({ code }: { code: string }) {
   return (
-    <div className="appear rounded-2xl border border-line bg-panel p-4 text-sm sm:p-5">
-      <p>{message}</p>
-      <p className="mt-2">
-        <a className="text-accent-fg underline underline-offset-2" href={contextDevLink("demo_limit")}>
-          Create a free context.dev account
-        </a>{" "}
-        (1,000 credits a month), then:
-      </p>
-      <pre className="mt-3 overflow-x-auto rounded-lg border border-line bg-code p-3 font-mono text-xs text-muted">
-        {`git clone ${REPO_URL}\ncp .env.example .env   # add your key\nnpm install && npm run dev`}
-      </pre>
+    <div className="appear rounded-2xl border border-line bg-panel p-4 sm:p-5">
+      <p className="font-medium">{HEADING[code] ?? HEADING.DEMO_LIMIT}</p>
+      <p className="mt-1 text-sm text-muted">Try again later. Saved results still work.</p>
+      <p className="mt-4 text-sm">Or run Page Token Meter yourself with your own free context.dev key.</p>
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3">
+        <a
+          href={contextDevLink("demo_limit")}
+          className="inline-flex flex-col rounded-xl bg-accent px-4 py-2 text-sm leading-tight font-medium text-white transition hover:brightness-110"
+        >
+          Get a free context.dev key
+          <span className="text-[11px] font-normal text-white/75">1,000 credits a month</span>
+        </a>
+        <a href={`${REPO_URL}#run-locally`} className="inline-flex items-center gap-1 text-sm font-medium text-accent-fg hover:underline">
+          How to run it yourself <ArrowRight className="size-3.5" />
+        </a>
+      </div>
     </div>
   );
 }
 
-function ErrorBox({ error }: { error: ApiError }) {
-  if (error.code === "DEMO_LIMIT" || error.code === "VISITOR_LIMIT") return <LimitReached message={error.error} />;
+export function ErrorBox({ error }: { error: ApiError }) {
+  if (error.code in HEADING) return <LimitReached code={error.code} />;
   return <p className="appear rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-300">{error.error}</p>;
 }
 
@@ -159,6 +172,8 @@ export function Meter({ fixtures = false, initialDomain }: { fixtures?: boolean;
   }
 
   const hasRun = Boolean(site || page);
+  const isLimit = (e?: ApiError) => Boolean(e && e.code in HEADING);
+  const limited = isLimit(site?.error) || isLimit(page?.error);
 
   return (
     <div className="w-full">
@@ -275,7 +290,8 @@ export function Meter({ fixtures = false, initialDomain }: { fixtures?: boolean;
           )}
           {page?.error && <ErrorBox error={page.error} />}
           {page && !page.error && <PagePanel run={page} fixtures={fixtures} onMeasureAgain={() => !running && runPage(page.url, true)} />}
-          {hasRun && <PoweredBy />}
+          {/* The limit message already offers a context.dev key: no second offer below it. */}
+          {hasRun && !limited && <PoweredBy />}
         </div>
       </div>
     </div>

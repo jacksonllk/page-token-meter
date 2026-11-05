@@ -2,8 +2,7 @@ import { APIError } from "context.dev";
 import { normalizeDomain, parsePublicUrl, siteDomain } from "./keypages";
 import { addCredits, limitReached, meterCredits, type Kind } from "./limits";
 import { measure, MeasureError, type Measurement, type ScrapeClient } from "./measure";
-import { isChip } from "./chips";
-import { cached, chipResult, saveResult, updateChip } from "./results";
+import { cached, chipSaved, isChipTarget, saveResult } from "./results";
 import type { TextFetch } from "./plain-fetch";
 import { measureSite, type SiteClient, type SiteResult } from "./site";
 import type { Store } from "./store";
@@ -22,10 +21,11 @@ function parseMaxTokens(input: string | null): number | null | undefined {
 }
 
 // Limit messages never say what the limits are or when they reset.
-export const DAILY_LIMIT_MESSAGE = "Today's free checks are used up. You can run Page Token Meter yourself with a free context.dev account.";
+export const DAILY_LIMIT_MESSAGE = "New checks are paused for now. Try again later, or run Page Token Meter yourself with a free context.dev account.";
+export const DAILY_CAP_MESSAGE = "Today's free checks are used up. Try again later, or run Page Token Meter yourself with a free context.dev account.";
 export const VISITOR_LIMIT_MESSAGE = "You've used your free checks for now. Try again later, or run Page Token Meter yourself with a free context.dev account.";
 
-// Used when live checks are switched off (LIVE_CHECKS=off) or the daily cap is reached.
+// Used when live checks are switched off (LIVE_CHECKS=off) or context.dev is out of credits. The daily cap has its own message.
 export const dailyLimitResponse = () => json({ error: DAILY_LIMIT_MESSAGE, code: "DEMO_LIMIT" }, 503);
 
 function errorBody(e: unknown): { status: number; body: { error: string; code: string } } {
@@ -77,19 +77,14 @@ export function clientIp(request: Request): string {
 }
 
 // A saved result less than 24 hours old, unless the visitor asked to measure again (?fresh=1).
-// A try chip's result has no expiry. The first time a chip's site is served from the cache, that result becomes the chip's.
+// A try chip or a page of its website: its saved result for a week, whatever the visitor asked. Only time refreshes it.
 async function fromCache<T extends Measurement | SiteResult>(kind: Kind, target: string, request: Request, guard: Guard): Promise<T | null> {
   const { store } = guard;
-  if (!store || new URL(request.url).searchParams.get("fresh") === "1") return null;
+  if (!store) return null;
   try {
-    const chip = kind === "site" && isChip(target);
-    if (chip) {
-      const saved = await chipResult(store, target);
-      if (saved) return saved as T;
-    }
-    const hit = await cached<T>(store, kind, target);
-    if (hit && chip) await updateChip(store, target, hit as SiteResult);
-    return hit;
+    if (isChipTarget(kind, target)) return await chipSaved<T>(store, kind, target);
+    if (new URL(request.url).searchParams.get("fresh") === "1") return null;
+    return await cached<T>(store, kind, target);
   } catch (e) {
     console.error("cache read failed", e);
     return null;
@@ -103,7 +98,8 @@ async function admit(guard: Guard): Promise<Response | null> {
   if (!guard.store) return null;
   try {
     const hit = await limitReached(guard.store, guard.ip ?? "unknown");
-    if (hit === "site") return dailyLimitResponse();
+    // The whole site's daily cap (DAILY_CREDIT_CAP).
+    if (hit === "site") return json({ error: DAILY_CAP_MESSAGE, code: "DAILY_CAP" }, 503);
     if (hit === "visitor") return json({ error: VISITOR_LIMIT_MESSAGE, code: "VISITOR_LIMIT" }, 429);
     return null;
   } catch (e) {
@@ -143,7 +139,6 @@ async function live<C extends ScrapeClient | SiteClient, T extends Measurement |
   if (store) {
     try {
       await saveResult(store, kind, target, result);
-      if (kind === "site" && isChip(target)) await updateChip(store, target, result as SiteResult);
     } catch (e) {
       console.error("saving the result failed", e);
     }

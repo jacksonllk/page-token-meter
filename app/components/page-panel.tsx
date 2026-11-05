@@ -1,6 +1,8 @@
 "use client";
 
+import { isChip } from "@/lib/chips";
 import { fileType } from "@/lib/files";
+import { siteDomain } from "@/lib/keypages";
 import { useState } from "react";
 import { measuredAt, num, pct } from "@/lib/format";
 import { shareText } from "@/lib/share-text";
@@ -72,16 +74,19 @@ function FileRow({ ok, name, chip, href }: { ok: boolean | "unknown" | null; nam
 // Every section is in place from the start; values fade in as each context.dev call returns.
 // fixtures: in fixture mode some answers were never saved. Those steps say "Not saved", not "Failed".
 // onMeasureAgain: shown for a saved result. shared: the share page, where the page text is not kept.
+// onLoadText: on the share page, loads the page's text with a normal check (free if it was checked in the last 24 hours).
 export function PagePanel({
   run,
   fixtures = false,
   onMeasureAgain,
   shared = false,
+  onLoadText,
 }: {
   run: PageRun;
   fixtures?: boolean;
   onMeasureAgain?: () => void;
   shared?: boolean;
+  onLoadText?: () => void;
 }) {
   const running = run.finishedAt === undefined;
   const failed = Boolean(run.error);
@@ -99,10 +104,12 @@ export function PagePanel({
   // A file (JSON, Markdown, text...) has no menus or footer: the main-content and Markdown-version steps are skipped.
   const file = fileType(run.url);
   const mainMissing = Boolean(run.main && !run.main.mainContent);
+  // A page of a try chip's website: saved for a week and refreshed only by time (lib/results.ts), so no "Measure again".
+  const chipPage = URL.canParse(run.url) && isChip(siteDomain(new URL(run.url).hostname));
 
   return (
     <article className="appear rounded-2xl border border-line bg-panel p-4 sm:p-5">
-      <RunHeader running={running} failed={failed} startedAt={run.startedAt} finishedAt={run.finishedAt} />
+      <RunHeader running={running} failed={failed} startedAt={run.startedAt} finishedAt={run.finishedAt} saved={run.saved} />
       <p className="mt-2.5 flex h-4 items-center gap-1.5 font-mono text-xs text-muted" title={run.url}>
         <SiteLogo src={result?.logo} />
         <span className="truncate">{run.url}</span>
@@ -180,11 +187,28 @@ export function PagePanel({
         </div>
 
         {/* 2. The page's text in reading order, showing the heatmap block being pointed at */}
-        {!shared && <AgentView m={result ?? null} point={point} fixtures={fixtures} />}
+        {/* Every page result has this section. A share link keeps the numbers only, so the text is one click away. */}
+        {shared ? (
+          <section className="mt-5 border-t border-line pt-4">
+            <p className="label">What an agent reads</p>
+            <p className="mt-2 text-sm text-muted">Shared results keep the numbers, not the page&apos;s text.</p>
+            {onLoadText && (
+              <button
+                type="button"
+                onClick={onLoadText}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium transition hover:border-faint"
+              >
+                Load the page&apos;s text
+              </button>
+            )}
+          </section>
+        ) : (
+          <AgentView m={result ?? null} point={point} fixtures={fixtures} />
+        )}
 
         {/* 3. How the page was analysed: the live steps */}
         <Section label="How the page was analysed">
-          <StepHeader />
+          <StepHeader saved={run.saved} />
           <StepRow
             n={1}
             name={file ? "Load the file" : "Load the full page"}
@@ -246,7 +270,7 @@ export function PagePanel({
             <div className="fade">
               <div className="flex items-center justify-between gap-3">
                 <p>Measured on {measuredAt(result.measuredAt)}</p>
-                <ResultActions id={result.id} title={shareText({ kind: "page", result }).title} onMeasureAgain={run.saved ? onMeasureAgain : undefined} />
+                <ResultActions id={result.id} title={shareText({ kind: "page", result }).title} onMeasureAgain={run.saved && !chipPage ? onMeasureAgain : undefined} />
               </div>
               {result.html.tokens > 0 && <p className="truncate">Full page code (HTML): {num(result.html.tokens)} tokens</p>}
               <p className="truncate">Clean text code (Markdown): {num(result.markdown.tokens)} tokens</p>

@@ -1,5 +1,6 @@
 "use client";
 
+import { isChip } from "@/lib/chips";
 import { fileType } from "@/lib/files";
 import { MAP_LIMIT } from "@/lib/keypages";
 import { measuredAt, num, pct } from "@/lib/format";
@@ -71,13 +72,12 @@ export function SitePanel({
   const pagesDone = pages.filter((p) => p.state === "done" || p.state === "failed").length;
   // When the last page finished. A result saved before 5 Nov has no page times.
   const lastPageMs = pagesDone === pages.length && pages.length > 0 && pages.every((p) => p.ms !== undefined) ? Math.max(...pages.map((p) => p.ms!)) : undefined;
-  const heaviest = run.result?.heaviest;
   // Pages context.dev answered from a copy it had already made. When all were, step 04 shows "Cached copy", not a time.
   const cachedPages = pages.filter((p) => p.cached).length;
 
   return (
     <article className="appear rounded-2xl border border-line bg-panel p-4 sm:p-5">
-      <RunHeader running={running} failed={failed} startedAt={run.startedAt} finishedAt={run.finishedAt} />
+      <RunHeader running={running} failed={failed} startedAt={run.startedAt} finishedAt={run.finishedAt} saved={run.saved} />
       <p className="mt-2.5 flex h-4 items-center gap-1.5 font-mono text-xs text-muted">
         <SiteLogo src={run.result?.logo} />
         Key pages of {run.domain}
@@ -89,18 +89,6 @@ export function SitePanel({
           <p className="label">Tokens to read your key pages</p>
           <RollingNumber value={pageRows.some((p) => p.markdown) ? total : null} className="mt-1 block text-5xl font-semibold tracking-tight" />
           <p className="mt-1 text-sm text-muted">Tokens needed to read all these pages as Markdown, including everything around their main content.</p>
-          <div className="mt-3 h-11">
-            <p className="text-xs text-muted">Most token-heavy page</p>
-            {heaviest && total > 0 ? (
-              <p className="fade text-base font-medium">
-                {heaviest.role} <span className="font-mono text-sm text-muted">· {pct(heaviest.tokens / total)} of the total</span>
-              </p>
-            ) : run.result ? (
-              <p className="text-base text-faint">—</p>
-            ) : (
-              <Skeleton className="mt-1.5 h-3.5 w-1/2" />
-            )}
-          </div>
         </div>
 
         {/* 2. One bar per page, on the same scale. Placeholder rows hold the space until the pages are picked. */}
@@ -152,7 +140,7 @@ export function SitePanel({
         <div className="mt-5 border-t border-line pt-4">
           <p className="label">How the website was analysed</p>
           <div className="mt-2">
-            <StepHeader />
+            <StepHeader saved={run.saved} />
             <StepRow
               n={1}
               name="Map the website"
@@ -208,7 +196,7 @@ export function SitePanel({
             <div className="fade">
               <div className="flex items-center justify-between gap-3">
                 <p>Measured on {measuredAt(run.result.measuredAt)}</p>
-                <ResultActions id={run.result.id} title={shareText({ kind: "site", result: run.result }).title} onMeasureAgain={run.saved ? onMeasureAgain : undefined} />
+                <ResultActions id={run.result.id} title={shareText({ kind: "site", result: run.result }).title} onMeasureAgain={run.saved && !isChip(run.domain) ? onMeasureAgain : undefined} />
               </div>
               <p>Tokens counted with OpenAI&apos;s o200k tokenizer.</p>
             </div>

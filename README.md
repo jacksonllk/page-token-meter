@@ -41,6 +41,12 @@ A one-page check loads the page twice: once in full and once with only its main 
 - Other models count differently. We don't estimate their numbers.
 - Pages change. Every result shows when it was measured.
 
+## Saved results and share links
+
+- Each check is saved for 24 hours. Checking the same website or page again in that time is instant and free. Click **Measure again** to check sooner.
+- The example websites under the search box are saved for a week. The first visit after that runs a fresh check.
+- Every result has a share link that keeps it as it was. A shared page result keeps the numbers but not the page's text. Click **Load the page's text** to see it.
+
 ## Run locally
 
 You need Node.js 20.9 or later and a free [context.dev](https://context.dev/?utm_source=page-token-meter&utm_medium=readme&utm_campaign=open-source) API key (1,000 credits a month, no card).
@@ -102,7 +108,6 @@ Each check spends credits on your API key.
 - The app downloads llms.txt files and Markdown versions straight from the website, so they use no credits. If the website blocks the download, the app gets the file through context.dev instead, for 1 credit.
 - The address list holds 500 addresses at most, so it can miss a key page. When that happens, the app checks the page's usual address on the website itself, such as `/pricing` or `/docs`. That check uses no credits. If the page exists, measuring it costs 1 credit, like any other page.
 - Every page is loaded fresh, so a result shows the page as it is today.
-- Repeat checks within 24 hours come from the app's cache and cost nothing.
 
 ## Configuration
 

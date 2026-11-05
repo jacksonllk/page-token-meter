@@ -1,3 +1,5 @@
+import { isChip } from "./chips";
+import { siteDomain } from "./keypages";
 import type { Kind } from "./limits";
 import type { Measurement } from "./measure";
 import type { SiteResult } from "./site";
@@ -22,41 +24,39 @@ export function shareCopy(shared: Shared): Shared {
 
 // Saves a finished check: the full result in the cache for 24 hours, and the share copy at its id with no expiry.
 // For a website, it also notes which share copy is the newest, so "/<website>" keeps its last result after the cache expires.
+// For a try chip or a page of a chip website, it also saves the full result for a week (see below).
 export async function saveResult(store: Store, kind: Kind, target: string, result: Measurement | SiteResult): Promise<void> {
   await Promise.all([
     store.set(cacheKey(kind, target), result, CACHE_TTL),
     store.set(`r:${result.id}`, shareCopy({ kind, result } as Shared)),
     kind === "site" ? store.set(`latest:site:${target}`, result.id) : null,
+    isChipTarget(kind, target) ? store.set(chipKey(kind, target), result, CHIP_TTL) : null,
   ]);
 }
 
-// A try chip's result, kept with no expiry. "Measure again" replaces it only when the total changes by more than 10%.
-const chipKey = (domain: string) => `chip:site:${domain}`;
-export const CHIP_CHANGE = 0.1;
+// A try chip (lib/chips.ts) and each page of its website are saved for a week, page text included, so a click is
+// instant and free. The first click after a week runs a live check, which is saved for the next week.
+// Visitors cannot force a fresh check of them: only time refreshes them.
+export const CHIP_TTL = 7 * 24 * 60 * 60;
+const chipKey = (kind: Kind, target: string) => `chip:${kind}:${target}`;
 
-export function chipResult(store: Store, domain: string): Promise<SiteResult | null> {
-  return store.get<SiteResult>(chipKey(domain));
+export function isChipTarget(kind: Kind, target: string): boolean {
+  if (kind === "site") return isChip(target);
+  return URL.canParse(target) && isChip(siteDomain(new URL(target).hostname));
 }
 
-// Saves a new result for a chip when there is none yet, when its pages changed, or when its total moved by more than CHIP_CHANGE.
-// Returns whether it saved.
-export async function updateChip(store: Store, domain: string, result: SiteResult): Promise<boolean> {
-  const saved = await chipResult(store, domain);
-  if (saved) {
-    const change = Math.abs(result.totalMarkdownTokens - saved.totalMarkdownTokens) / Math.max(1, saved.totalMarkdownTokens);
-    // Different pages are a different measurement, whatever the total.
-    const samePages = saved.pages.map((p) => p.url).join(" ") === result.pages.map((p) => p.url).join(" ");
-    if (samePages && change <= CHIP_CHANGE) return false;
-    console.log(`chip ${domain}: ${samePages ? `total changed ${Math.round(change * 100)}%` : "pages changed"} (${saved.totalMarkdownTokens} -> ${result.totalMarkdownTokens}), replaced`);
-  }
-  await store.set(chipKey(domain), result);
-  return true;
+// The chip's saved result, or null once it is a week old. The age is checked too, not only the store's expiry,
+// so a result saved before chips expired never lives on.
+export async function chipSaved<T extends Measurement | SiteResult>(store: Store, kind: Kind, target: string, now = Date.now()): Promise<T | null> {
+  if (!isChipTarget(kind, target)) return null;
+  const saved = await store.get<T>(chipKey(kind, target));
+  return saved && now - Date.parse(saved.measuredAt) < CHIP_TTL * 1000 ? saved : null;
 }
 
 // The newest result for a website, for its page title and preview image: its chip result, its 24-hour cache entry,
 // or its last share copy. null only when it has never been measured.
 export async function latestSite(store: Store, domain: string): Promise<SiteResult | null> {
-  const fresh = (await chipResult(store, domain)) ?? (await cached<SiteResult>(store, "site", domain));
+  const fresh = (await chipSaved<SiteResult>(store, "site", domain)) ?? (await cached<SiteResult>(store, "site", domain));
   if (fresh) return fresh;
   const id = await store.get<string>(`latest:site:${domain}`);
   const shared = id ? await sharedResult(store, id) : null;

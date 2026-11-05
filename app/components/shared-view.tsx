@@ -1,20 +1,35 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import type { PageStreamEvent } from "@/lib/events";
 import { measuredAt } from "@/lib/format";
 import type { Shared } from "@/lib/results";
 import { ArrowRight } from "./icons";
-import { PoweredBy } from "./meter";
+import { ErrorBox, PoweredBy } from "./meter";
 import { PagePanel } from "./page-panel";
-import { savedPageRun, savedSiteRun } from "./runs";
+import { applyPageEvent, readEvents, savedPageRun, savedSiteRun, type PageRun } from "./runs";
 import { SitePanel } from "./site-panel";
 
 // A result opened from a share link: the saved numbers, then a way to measure your own site.
+// A page result can load its text on the spot: a normal check of that page, shown in place of the snapshot.
 export function SharedView({ shared }: { shared: Shared }) {
+  const [live, setLive] = useState<PageRun | null>(null);
+  async function loadText(url: string) {
+    setLive({ url, startedAt: Date.now() });
+    const failed = await readEvents<PageStreamEvent>(`/api/measure/stream?url=${encodeURIComponent(url)}`, (ev) => setLive((run) => (run ? applyPageEvent(run, ev) : run)));
+    if (failed) setLive((run) => (run ? { ...run, error: failed, finishedAt: Date.now() } : run));
+  }
   return (
     <div className="space-y-4">
-      {shared.kind === "page" ? (
-        <PagePanel run={savedPageRun({ url: shared.result.url, startedAt: 0 }, shared.result)} shared />
+      {shared.kind === "page" && live && !live.error ? (
+        <PagePanel run={live} />
+      ) : shared.kind === "page" ? (
+        <>
+          {/* If loading failed (for example the daily limit), the snapshot stays, with the reason above it. */}
+          {live?.error && <ErrorBox error={live.error} />}
+          <PagePanel run={savedPageRun({ url: shared.result.url, startedAt: 0 }, shared.result)} shared onLoadText={() => loadText(shared.result.url)} />
+        </>
       ) : (
         <SitePanel run={savedSiteRun({ domain: shared.result.domain, startedAt: 0 }, shared.result)} shared />
       )}
