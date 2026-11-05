@@ -8,7 +8,7 @@ export function maxKeyPages(): number {
   const n = Number(process.env.MAX_KEY_PAGES);
   return Number.isInteger(n) && n > 0 ? n : MAX_PAGES;
 }
-// The most page addresses context.dev's Map call returns (context-dev-notes.md, observed). Key pages are picked from these.
+// The most page addresses context.dev's Map call returns (observed on 4 websites, 5 Nov 2026). Key pages are picked from these.
 export const MAP_LIMIT = 500;
 // Files an llms.txt points to (OpenAPI specs, llms-full.txt) are measured too, but listed apart from the pages.
 export const MAX_FILES = 2;
@@ -48,7 +48,7 @@ function skipped(u: URL): boolean {
 }
 
 // Key pages in the order we pick them: what site owners put first in their llms.txt files, and what AI agents read
-// to understand a product or a business (research: page-token-meter-notes/key-pages-research.md, 5 Nov 2026).
+// to understand a product or a business (from the llms.txt files of 25 websites and studies of what AI search cites, 5 Nov 2026).
 // One list for every kind of website. A role the website does not have is skipped, so a law firm's service pages,
 // About and Contact fill the places a developer tool gives to its docs and API reference.
 // Matched by address only, on the main site or its docs subdomain: addresses mean the same on every website.

@@ -1,5 +1,5 @@
 // The README demo: measure one page, then point at the heatmap so the text panel jumps to each block's text.
-// Recorded with the make-demo-gif pipeline (see demo/README.md). DEMO_URL: the app to record, default a local copy.
+// Recorded with demo/record.mjs and demo/encode.mjs (see demo/README.md). DEMO_URL: the app to record, default a local copy.
 export default async function demo(d) {
   await d.goto(process.env.DEMO_URL ?? "http://localhost:3000/");
   await d.hide("Fixture mode");
