@@ -131,6 +131,7 @@ export function Meter({ fixtures = false, initialDomain }: { fixtures?: boolean;
       if (domain) showInAddressBar(`/${domain}`);
       runSite(value);
     }
+    scrollToResults();
   }
 
   // A try chip: measure that website. Its saved result comes back at once, with 0 credits.
@@ -145,10 +146,14 @@ export function Meter({ fixtures = false, initialDomain }: { fixtures?: boolean;
     setInput(domain);
     showInAddressBar(`/${domain}`);
     runSite(domain);
+    scrollToResults();
   }
 
+  // Brings the result into view after Measure, a chip or opening a page. Instant for people who ask for reduced motion.
   const scrollToResults = () =>
-    requestAnimationFrame(() => document.getElementById("results")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    requestAnimationFrame(() =>
+      document.getElementById("results")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }),
+    );
 
   // In the Site view, a tapped page opens in the one-page view. "Back" returns to the site result.
   function openPage(url: string) {

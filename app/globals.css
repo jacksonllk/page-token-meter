@@ -161,15 +161,22 @@ body {
   animation: fade 300ms ease-out both;
 }
 
-/* The squares of the reading-order map appear one after another, like a page being read. */
-@keyframes cell-in {
+/* The page heatmap. While loading, the whole grid breathes. Once measured, a cover slides away top to bottom,
+   like a page being read. One animation each, run by the GPU (transform, opacity). */
+.breathe {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+@keyframes heat-reveal {
   from {
-    opacity: 0;
-    transform: scale(0.4);
+    transform: scaleY(1);
+  }
+  to {
+    transform: scaleY(0);
   }
 }
-.cell-in {
-  animation: cell-in 260ms ease-out both;
+.heat-reveal {
+  transform-origin: bottom;
+  animation: heat-reveal 650ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
 /* The dot next to a step that is running right now. */

@@ -25,18 +25,20 @@ export function Heatmap({
       role="img"
       aria-label={heat ? "Heatmap of the page: darker blocks hold more main content." : "Heatmap of the page, loading."}
       onMouseLeave={() => onPoint?.(null)}
-      className="grid w-[132px] shrink-0 grid-cols-12 gap-[2px] rounded-xl border border-line bg-panel p-2 sm:w-[168px] sm:gap-[3px] sm:p-2.5"
+      className={`relative grid w-[132px] shrink-0 grid-cols-12 gap-[2px] rounded-xl border border-line bg-panel p-2 sm:w-[168px] sm:gap-[3px] sm:p-2.5 ${!heat && !empty ? "breathe" : ""}`}
     >
+      {/* One animation for the whole grid, not one per block: 192 separate animations made scrolling stutter.
+          While loading, the grid breathes. Once measured, a cover slides away top to bottom, in reading order. */}
+      {heat && <span aria-hidden className="heat-reveal pointer-events-none absolute inset-0 z-10 rounded-[11px] bg-panel motion-reduce:hidden" />}
       {Array.from({ length: HEAT_CELLS }, (_, i) => {
-        if (!heat) return <span key={i} className={`aspect-square rounded-[2px] ${empty ? "fade bg-track/60" : "skeleton"}`} />;
+        if (!heat) return <span key={i} className={`aspect-square rounded-[2px] ${empty ? "fade bg-track/60" : "bg-track"}`} />;
         const level = Math.max(0, Math.min(HEAT_LEVELS, heat[i] ?? 0));
         return (
           <span
             key={i}
             onMouseEnter={onPoint && (() => onPoint(i))}
             onClick={onPoint && (() => onPoint(i))}
-            className={`cell-in aspect-square rounded-[2px] ${SHADES[level]} ${active === i ? "ring-2 ring-fg/70 ring-offset-1 ring-offset-panel" : ""}`}
-            style={{ animationDelay: `${i * 3}ms` }}
+            className={`aspect-square rounded-[2px] ${SHADES[level]} ${active === i ? "ring-2 ring-fg/70 ring-offset-1 ring-offset-panel" : ""}`}
           />
         );
       })}

@@ -42,3 +42,6 @@ __pycache__/
 
 # Saved context.dev responses with real page text. Local only, never in the public repo.
 /tests/fixtures/local/
+
+# Demo GIF frames (demo/record-demo.mjs)
+/demo/frames/

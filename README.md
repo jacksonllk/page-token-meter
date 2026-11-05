@@ -14,7 +14,7 @@
 
 </div>
 
-[![Page Token Meter measuring a website](demo/screenshot.png)](https://page-token-meter.vercel.app)
+[![Page Token Meter measuring docs.context.dev: the heatmap, then pointing at blocks to see their text](demo/demo.gif)](https://page-token-meter.vercel.app)
 
 Page Token Meter shows how many tokens an AI agent needs to read your website, and how much of that is your actual content. The hosted version is free at [page-token-meter.vercel.app](https://page-token-meter.vercel.app). It is built on [context.dev](https://context.dev/?utm_source=page-token-meter&utm_medium=readme&utm_campaign=open-source), which loads each page in a real browser and turns it into Markdown.
 

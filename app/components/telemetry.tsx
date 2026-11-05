@@ -297,20 +297,24 @@ export function Skeleton({ className = "" }: { className?: string }) {
 }
 
 // Grows and shrinks smoothly when its content changes size, instead of jumping.
+// The height is set on the element directly, not through React state: a state update here would re-render the
+// whole card on every size change while a result builds, and make scrolling stutter.
 export function SmoothHeight({ children }: { children: React.ReactNode }) {
+  const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
-  const [height, setHeight] = useState<number>();
 
   useEffect(() => {
     const el = inner.current;
     if (!el) return;
-    const observer = new ResizeObserver(([entry]) => setHeight(entry.contentRect.height));
+    const observer = new ResizeObserver(([entry]) => {
+      if (outer.current) outer.current.style.height = `${entry.contentRect.height}px`;
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
   return (
-    <div className="overflow-y-clip transition-[height] duration-300 ease-out motion-reduce:transition-none" style={{ height }}>
+    <div ref={outer} className="overflow-y-clip transition-[height] duration-300 ease-out motion-reduce:transition-none">
       <div ref={inner} className="flow-root">
         {children}
       </div>
