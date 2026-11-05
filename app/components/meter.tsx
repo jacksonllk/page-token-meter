@@ -1,7 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { CHIPS } from "@/lib/chips";
+import { websiteFrom } from "@/lib/keypages";
 import type { PageStreamEvent, SiteStreamEvent } from "@/lib/events";
 import { contextDevLink, REPO_URL } from "@/lib/links";
 import { ArrowRight, CheckIcon, GlobeIcon } from "./icons";
@@ -34,61 +36,37 @@ function ErrorBox({ error }: { error: ApiError }) {
 
 type Mode = "page" | "site";
 
-// How a result is made, under every result. Voice and facts follow context.dev's home and pricing pages (3 Nov 2026).
-const HOW_IT_WORKS = [
-  {
-    title: "Map out key pages",
-    text: "Pick up to 8 key pages from your llms.txt. If you don't have one, we will pick key pages like pricing, docs and API reference.",
-  },
-  {
-    title: "Load each page",
-    text: "Opens each page in a real browser and turns it into markdown, returning the full page and the main content.",
-  },
-  {
-    title: "Count page tokens",
-    text: "Tokens are counted with OpenAI's o200k tokenizer, used by GPT-4o, GPT-4.1 and GPT-5. Other models count differently.",
-  },
-];
-
+// Under every result: who powers it, and one way to start. The steps in each result already say how it was made.
 export function PoweredBy() {
   return (
-    <section className="appear rounded-2xl border border-line bg-panel p-4 sm:p-5">
-      <p className="flex items-center gap-2 text-xs text-muted">
+    <section className="appear flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-panel px-4 py-3 sm:px-5">
+      <p className="flex items-center gap-2 text-sm text-muted">
         Powered by
         <Image src="/context-dev.png" alt="" width={16} height={16} className="size-4 rounded-[4px]" />
         <span className="-ml-0.5 font-medium text-fg">context.dev</span>
       </p>
-      <h2 className="mt-2 text-base font-semibold">Every key page, fully loaded and counted.</h2>
-      <ol className="mt-4 space-y-3">
-        {HOW_IT_WORKS.map((step, i) => (
-          <li key={step.title} className="flex gap-3">
-            <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-line font-mono text-[11px] text-muted">
-              {i + 1}
-            </span>
-            <p className="text-sm text-muted">
-              <span className="font-medium text-fg">{step.title}.</span> {step.text}
-            </p>
-          </li>
-        ))}
-      </ol>
-      <div className="mt-5 flex flex-wrap justify-center items-center gap-x-5 gap-y-3 border-t border-line pt-4">
-        <a
-          href={contextDevLink("result_card")}
-          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white transition hover:brightness-110"
-        >
-          Start for free on context.dev <ArrowRight className="size-3.5" />
-        </a>
-      </div>
-      <p className="mt-2.5 text-xs text-faint text-center">1,000 free credits a month. No card required.</p>
+      <a
+        href={contextDevLink("result_card")}
+        className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition hover:brightness-110"
+      >
+        Start for free <ArrowRight className="size-3" />
+      </a>
     </section>
   );
 }
 
+// The address bar always shows what is on screen: "/stripe.com" for a Whole website result, "/" otherwise.
+// That address is the link people copy and type. Replacing it does not reload the page.
+function showInAddressBar(path: string) {
+  if (window.location.pathname !== path) window.history.replaceState(null, "", path);
+}
+
 // fixtures: the app runs on saved responses (npm run dev:fixtures). Some answers were never saved.
-export function Meter({ fixtures = false }: { fixtures?: boolean }) {
+// initialDomain: opened as "/stripe.com", so that website is measured at once.
+export function Meter({ fixtures = false, initialDomain }: { fixtures?: boolean; initialDomain?: string }) {
   // Whole site is the main view. One page is one tap away.
   const [mode, setMode] = useState<Mode>("site");
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialDomain ?? "");
   const [page, setPage] = useState<PageRun | null>(null);
   const [site, setSite] = useState<SiteRun | null>(null);
   // True while looking at one page opened from the site result. The site result stays in memory for "Back".
@@ -116,6 +94,14 @@ export function Meter({ fixtures = false }: { fixtures?: boolean }) {
     if (failed) setSite((run) => (run ? { ...run, error: failed, finishedAt: Date.now() } : run));
   }
 
+  // Opened as "/stripe.com": measure it once, as if the visitor had typed it.
+  const started = useRef(false);
+  useEffect(() => {
+    if (!initialDomain || started.current) return;
+    started.current = true;
+    runSite(initialDomain);
+  }, [initialDomain]);
+
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const value = input.trim();
@@ -124,8 +110,28 @@ export function Meter({ fixtures = false }: { fixtures?: boolean }) {
     setSite(null);
     setDrilled(false);
     setSlide(null);
-    if (mode === "page") runPage(value);
-    else runSite(value);
+    if (mode === "page") {
+      showInAddressBar("/");
+      runPage(value);
+    } else {
+      const domain = websiteFrom(value);
+      if (domain) showInAddressBar(`/${domain}`);
+      runSite(value);
+    }
+  }
+
+  // A try chip: measure that website. Its saved result comes back at once, with 0 credits.
+  function tryChip(e: React.MouseEvent<HTMLButtonElement>) {
+    const domain = e.currentTarget.value;
+    if (running) return;
+    setPage(null);
+    setSite(null);
+    setDrilled(false);
+    setSlide(null);
+    setMode("site");
+    setInput(domain);
+    showInAddressBar(`/${domain}`);
+    runSite(domain);
   }
 
   const scrollToResults = () =>
@@ -181,17 +187,17 @@ export function Meter({ fixtures = false }: { fixtures?: boolean }) {
                 }}
                 className={`relative rounded-lg py-1.5 text-[13px] font-medium transition-colors duration-300 ${mode === m ? "text-fg" : "text-muted hover:text-fg"}`}
               >
-                {m === "page" ? "One page" : "Whole site"}
+                {m === "page" ? "One page" : "Whole website"}
               </button>
             ))}
           </div>
-          <span className="hidden pr-2 font-mono text-[11px] text-faint sm:block">{mode === "site" ? "up to 8 key pages" : "one page in depth"}</span>
+          <span className="hidden pr-2 font-mono text-[11px] text-faint sm:block">{mode === "site" ? "key pages" : "one page in depth"}</span>
         </div>
 
         <div className="mt-2 flex flex-col gap-2 sm:flex-row">
           <label htmlFor="url" className="flex min-w-0 flex-1 cursor-text items-center gap-2.5 rounded-xl bg-bg px-3.5">
             <GlobeIcon className="size-4 text-faint" />
-            <span className="sr-only">{mode === "page" ? "Page URL" : "Site address"}</span>
+            <span className="sr-only">{mode === "page" ? "Page URL" : "Website address"}</span>
             <input
               id="url"
               type="text"
@@ -215,7 +221,7 @@ export function Meter({ fixtures = false }: { fixtures?: boolean }) {
               </>
             ) : (
               <>
-                {mode === "page" ? "Measure page" : "Measure site"} <ArrowRight />
+                {mode === "page" ? "Measure page" : "Measure website"} <ArrowRight />
               </>
             )}
           </button>
@@ -223,7 +229,7 @@ export function Meter({ fixtures = false }: { fixtures?: boolean }) {
       </form>
 
       {/* <p className="mt-3 px-1 text-sm text-muted">
-        {mode === "page" ? "Measure one page: its tokens and where they go." : "Measure up to 8 key pages: the ones your llms.txt lists, or pricing, docs, API reference and more."}
+        {mode === "page" ? "Measure one page: its tokens and where they go." : "Measure your key pages: the ones your llms.txt lists, or pricing, docs, API reference and more."}
       </p> */}
       <ul className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-xs text-muted">
         {["Free", "No key needed", "Open source"].map((item) => (
@@ -239,6 +245,22 @@ export function Meter({ fixtures = false }: { fixtures?: boolean }) {
           </a>
         </li>
       </ul>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 px-1">
+        <span className="text-xs text-faint">Try</span>
+        {CHIPS.map((domain) => (
+          <button
+            key={domain}
+            type="button"
+            value={domain}
+            disabled={running}
+            onClick={tryChip}
+            className="rounded-full border border-line bg-panel px-2.5 py-0.5 font-mono text-[11px] text-muted transition hover:border-faint hover:text-fg disabled:opacity-50"
+          >
+            {domain}
+          </button>
+        ))}
+      </div>
 
       <div id="results" className="mt-6 scroll-mt-4 overflow-x-clip">
         <div key={slide?.n ?? 0} className={`space-y-4 ${slide ? `slide-from-${slide.from}` : ""}`}>

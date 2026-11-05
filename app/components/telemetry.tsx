@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { CheckIcon, LinkedInIcon, LinkIcon, RefreshIcon, ShareIcon, XIcon } from "./icons";
 
 const prefersReducedMotion = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -70,13 +71,14 @@ export function StepHeader() {
     <div className="flex items-center gap-3 pb-1 text-[11px] text-faint">
       <span className="w-5" />
       <span className="flex-1">Step</span>
-      <span className="w-16 text-right whitespace-nowrap">Finished in</span>
+      <span className="w-20 text-right whitespace-nowrap">Finished in</span>
       <span className="w-4" />
     </div>
   );
 }
 
 // One step: number, name, what it does, and the time it finished (counting up while it runs).
+// cached: context.dev answered with a copy it had already made. The time would not show a fresh load, so it says "Cached copy".
 export function StepRow({
   n,
   name,
@@ -85,6 +87,7 @@ export function StepRow({
   ms,
   detail,
   hint,
+  cached = false,
 }: {
   n: number;
   name: string;
@@ -93,6 +96,7 @@ export function StepRow({
   ms?: number;
   detail?: string;
   hint?: string;
+  cached?: boolean;
 }) {
   return (
     <div className={`flex items-start gap-3 py-1.5 text-sm ${state === "waiting" || state === "skipped" || state === "unsaved" ? "text-faint" : "text-fg"}`}>
@@ -102,10 +106,11 @@ export function StepRow({
         {detail && state === "done" && <span className="appear ml-2 font-mono text-xs text-muted">{detail}</span>}
         {hint && <span className="block text-xs text-muted">{hint}</span>}
       </span>
-      <span className="w-16 pt-0.5 text-right text-xs">
+      <span className="w-20 pt-0.5 text-right text-xs whitespace-nowrap">
         {state === "live" && <Seconds startedAt={startedAt} running className="text-accent-fg" />}
         {/* A saved result has no step times: nothing ran now. */}
-        {state === "done" && ms !== undefined && <Seconds startedAt={startedAt} ms={ms} running={false} />}
+        {state === "done" && cached && <span className="text-muted">Cached copy</span>}
+        {state === "done" && !cached && ms !== undefined && <Seconds startedAt={startedAt} ms={ms} running={false} />}
         {state === "failed" && <span className="text-red-500">Failed</span>}
         {state === "waiting" && "—"}
         {state === "skipped" && <span className="text-faint">Skipped</span>}
@@ -139,19 +144,18 @@ function ScanMark() {
   );
 }
 
-// Run header: status on the left, elapsed time on the right. A saved result shows no elapsed time.
+// Run header: status on the left, elapsed time on the right. A saved result shows the time of the check that made it,
+// or none when it has no times (finishedAt equals startedAt).
 export function RunHeader({
   running,
   failed,
   startedAt,
   finishedAt,
-  saved = false,
 }: {
   running: boolean;
   failed: boolean;
   startedAt: number;
   finishedAt?: number;
-  saved?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between">
@@ -164,7 +168,7 @@ export function RunHeader({
       ) : (
         <span className="label">● Complete</span>
       )}
-      {!saved && (
+      {(running || (finishedAt ?? startedAt) > startedAt) && (
         <span className="flex items-baseline gap-2">
           <span className="label">Elapsed</span>
           <Seconds startedAt={startedAt} ms={finishedAt ? finishedAt - startedAt : undefined} running={running} className="text-xs font-medium" />
@@ -174,32 +178,111 @@ export function RunHeader({
   );
 }
 
-// Next to "Measured <time>": copy the share link, and measure again when the result was saved earlier.
-export function ResultActions({ id, onMeasureAgain }: { id: string; onMeasureAgain?: () => void }) {
+const SECONDARY_BUTTON =
+  "inline-flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] text-muted transition hover:border-faint hover:text-fg";
+
+// Next to "Measured <time>": share the result, and measure again when the result was saved earlier. Small, quiet buttons.
+// Share: on a phone, the phone's own share menu with the headline and link filled in.
+// On a computer, a menu: post on X or LinkedIn with the link filled in, or copy the link.
+// title: the result's headline, such as "58,203 tokens to read the key pages of context.dev".
+export function ResultActions({ id, title, onMeasureAgain }: { id: string; title: string; onMeasureAgain?: () => void }) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  const link = () => `${location.origin}/r/${id}`;
+
+  // Close the menu on a click outside it or on Escape.
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    const escape = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
+  async function share() {
+    if (navigator.share && window.matchMedia("(pointer: coarse)").matches) {
+      try {
+        await navigator.share({ title, text: title, url: link() });
+        return;
+      } catch (e) {
+        // Closing the share menu is not an error. Anything else opens our own menu.
+        if ((e as Error).name === "AbortError") return;
+      }
+    }
+    setCopied(false);
+    setOpen((o) => !o);
+  }
+
   async function copy() {
+    setOpen(false);
     try {
-      await navigator.clipboard.writeText(`${location.origin}/r/${id}`);
+      await navigator.clipboard.writeText(link());
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      setTimeout(() => setCopied(false), 4000);
     } catch {
       // Clipboard blocked: open the link instead, so it can be copied from the address bar.
       router.push(`/r/${id}`);
     }
   }
+
+  const post = (href: string) => {
+    setOpen(false);
+    window.open(href, "_blank", "noopener,noreferrer");
+  };
+  const toX = () => post(`https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(link())}`);
+  // LinkedIn takes only the link. Its preview shows the result's image and headline.
+  const toLinkedIn = () => post(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(link())}`);
+
   return (
-    <span className="flex shrink-0 items-center gap-3 font-sans text-xs">
+    <span ref={box} className="relative flex shrink-0 items-center gap-1.5 font-sans">
       {onMeasureAgain && (
-        <button type="button" onClick={onMeasureAgain} className="text-muted hover:text-fg">
-          Measure again
+        <button type="button" onClick={onMeasureAgain} className={SECONDARY_BUTTON}>
+          <RefreshIcon className="size-3" /> Measure again
         </button>
       )}
-      <button type="button" onClick={copy} className="font-medium text-accent-fg hover:underline">
-        {copied ? "Link copied" : "Copy link"}
+      <button type="button" onClick={share} aria-haspopup="menu" aria-expanded={open} className={SECONDARY_BUTTON}>
+        {copied ? <CheckIcon className="size-3" /> : <ShareIcon className="size-3" />} Share
       </button>
+      {/* Opens upwards: the panel clips anything below its last line. */}
+      {open && (
+        <span role="menu" className="appear absolute right-0 bottom-full z-10 mb-2 flex w-44 flex-col rounded-lg border border-line bg-panel p-1 text-xs text-fg shadow-md">
+          <MenuItem onClick={toX} icon={<XIcon className="size-3" />} label="Post on X" />
+          <MenuItem onClick={toLinkedIn} icon={<LinkedInIcon className="size-3" />} label="Post on LinkedIn" />
+          <MenuItem onClick={copy} icon={<LinkIcon className="size-3" />} label="Copy link" />
+          <span className="border-t border-line px-2 pt-1.5 pb-1 text-[11px] text-faint">This link keeps this result.</span>
+        </span>
+      )}
+      {/* What the copied link is: a snapshot, not the website's newest result. */}
+      {copied && (
+        <span role="status" className="appear absolute right-0 bottom-full z-10 mb-2 rounded-md bg-fg px-2.5 py-1.5 text-[11px] whitespace-nowrap text-bg shadow-sm">
+          Copied. This link keeps this result.
+        </span>
+      )}
     </span>
   );
+}
+
+function MenuItem({ onClick, icon, label }: { onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button type="button" role="menuitem" onClick={onClick} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-track">
+      <span className="flex w-3 justify-center text-muted">{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+// A website's logo (lib/logo.ts), loaded from that website without a referrer. Hidden if it does not load.
+export function SiteLogo({ src }: { src?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) return null;
+  // eslint-disable-next-line @next/next/no-img-element -- any website's address: next/image needs a fixed list of hosts
+  return <img src={src} alt="" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="fade size-4 shrink-0 rounded-[3px]" />;
 }
 
 // A grey placeholder bar that holds space for text or a number that has not arrived yet.

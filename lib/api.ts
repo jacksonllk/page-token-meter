@@ -2,7 +2,8 @@ import { APIError } from "context.dev";
 import { normalizeDomain, parsePublicUrl, siteDomain } from "./keypages";
 import { addCredits, limitReached, meterCredits, type Kind } from "./limits";
 import { measure, MeasureError, type Measurement, type ScrapeClient } from "./measure";
-import { cached, saveResult } from "./results";
+import { isChip } from "./chips";
+import { cached, chipResult, saveResult, updateChip } from "./results";
 import type { TextFetch } from "./plain-fetch";
 import { measureSite, type SiteClient, type SiteResult } from "./site";
 import type { Store } from "./store";
@@ -74,10 +75,19 @@ export function clientIp(request: Request): string {
 }
 
 // A saved result less than 24 hours old, unless the visitor asked to measure again (?fresh=1).
+// A try chip's result has no expiry. The first time a chip's site is served from the cache, that result becomes the chip's.
 async function fromCache<T extends Measurement | SiteResult>(kind: Kind, target: string, request: Request, guard: Guard): Promise<T | null> {
-  if (!guard.store || new URL(request.url).searchParams.get("fresh") === "1") return null;
+  const { store } = guard;
+  if (!store || new URL(request.url).searchParams.get("fresh") === "1") return null;
   try {
-    return await cached<T>(guard.store, kind, target);
+    const chip = kind === "site" && isChip(target);
+    if (chip) {
+      const saved = await chipResult(store, target);
+      if (saved) return saved as T;
+    }
+    const hit = await cached<T>(store, kind, target);
+    if (hit && chip) await updateChip(store, target, hit as SiteResult);
+    return hit;
   } catch (e) {
     console.error("cache read failed", e);
     return null;
@@ -131,6 +141,7 @@ async function live<C extends ScrapeClient | SiteClient, T extends Measurement |
   if (store) {
     try {
       await saveResult(store, kind, target, result);
+      if (kind === "site" && isChip(target)) await updateChip(store, target, result as SiteResult);
     } catch (e) {
       console.error("saving the result failed", e);
     }

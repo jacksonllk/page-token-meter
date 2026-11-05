@@ -42,8 +42,9 @@ async function allowed(url: URL): Promise<boolean> {
   }
 }
 
-async function readText(res: Response): Promise<string | null> {
-  if (!res.body) return "";
+// Reads the body, stopping at max bytes. null when it is larger.
+async function readBytes(res: Response, max: number): Promise<Buffer | null> {
+  if (!res.body) return Buffer.alloc(0);
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let bytes = 0;
@@ -51,13 +52,18 @@ async function readText(res: Response): Promise<string | null> {
     const { value, done } = await reader.read();
     if (done) break;
     bytes += value.byteLength;
-    if (bytes > MAX_BYTES) {
+    if (bytes > max) {
       await reader.cancel();
       return null;
     }
     chunks.push(value);
   }
-  return new TextDecoder().decode(Buffer.concat(chunks));
+  return Buffer.concat(chunks);
+}
+
+async function readText(res: Response): Promise<string | null> {
+  const bytes = await readBytes(res, MAX_BYTES);
+  return bytes && new TextDecoder().decode(bytes);
 }
 
 export const plainFetch: TextFetch = async (input) => {
@@ -96,3 +102,40 @@ export const plainFetch: TextFetch = async (input) => {
     return { status: "blocked" };
   }
 };
+
+const MAX_IMAGE_BYTES = 300_000;
+const IMAGE_TIMEOUT_MS = 3000;
+
+// Downloads a website's logo for a share image, as a data URL. PNG or JPEG only, 300 KB at most.
+// The same address checks as plainFetch. null when anything is off: the card is drawn without the logo.
+export async function fetchImage(input: string): Promise<string | null> {
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    return null;
+  }
+  const signal = AbortSignal.timeout(IMAGE_TIMEOUT_MS);
+  try {
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      if (!(await allowed(url))) return null;
+      const res = await fetch(url, { redirect: "manual", signal, headers: { "user-agent": `PageTokenMeter (+${REPO_URL})`, accept: "image/png, image/jpeg" } });
+      const location = res.headers.get("location");
+      if (res.status >= 300 && res.status < 400 && location) {
+        await res.body?.cancel();
+        url = new URL(location, url);
+        continue;
+      }
+      const type = res.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
+      if (!res.ok || !/^image\/(png|jpe?g)$/.test(type) || Number(res.headers.get("content-length") ?? 0) > MAX_IMAGE_BYTES) {
+        await res.body?.cancel();
+        return null;
+      }
+      const bytes = await readBytes(res, MAX_IMAGE_BYTES);
+      return bytes && bytes.byteLength > 0 ? `data:${type};base64,${bytes.toString("base64")}` : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

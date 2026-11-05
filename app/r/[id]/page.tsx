@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { cache, Suspense } from "react";
 import { SharedView } from "@/app/components/shared-view";
 import { SiteFooter, SiteHeader } from "@/app/components/site-chrome";
@@ -6,8 +7,11 @@ import { sharedResult } from "@/lib/results";
 import { shareText } from "@/lib/share-text";
 import { getStore } from "@/lib/store";
 
-// One lookup per request, shared by the metadata and the page.
-const load = cache((id: string) => sharedResult(getStore(), id));
+// One lookup per request, shared by the metadata and the page. Read at request time, never prerendered.
+const load = cache(async (id: string) => {
+  await connection();
+  return sharedResult(getStore(), id);
+});
 
 export async function generateMetadata({ params }: PageProps<"/r/[id]">): Promise<Metadata> {
   const shared = await load((await params).id);

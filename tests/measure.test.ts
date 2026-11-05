@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { declaredLinks, measure, MeasureError, navFooterShare, PREVIEW_CHARS, readingOrder, splitPreview, splitTokens } from "@/lib/measure";
+import { declaredLinks, heatLevels, measure, MeasureError, navFooterShare, PREVIEW_CHARS, readingOrder, splitPreview, splitTokens } from "@/lib/measure";
+import { HEAT_CELLS, HEAT_LEVELS, heatFromBreakdown, toLevels } from "@/lib/heat";
 import { fileType } from "@/lib/files";
 import { countTokens } from "@/lib/tokens";
 import { EXAMPLE_FULL, EXAMPLE_MAIN, fakeClient, fakeResponse, fixture, HAS_SAVED_PAGES, pageClient } from "./helpers/fake-client";
@@ -45,6 +46,8 @@ describe("measure calls", () => {
     await measure("https://docs.context.dev/", client);
     expect(calls).toHaveLength(3);
     for (const c of calls) expect(c.tags).toContain("page-token-meter");
+    // Always a fresh load, never context.dev's saved copy.
+    for (const c of calls) expect(c.maxAgeMs).toBe(0);
     expect(calls[0]).toMatchObject({ formats: { markdown: true, html: true }, sharedParams: { mainContentOnly: false } });
     expect(calls[1]).toMatchObject({ formats: { markdown: true }, sharedParams: { mainContentOnly: true } });
     expect(calls[2]).toMatchObject({ formats: { markdown: true }, markdownParams: { sourcePreference: ["markdown-direct"] } });
@@ -58,6 +61,24 @@ describe("published Markdown", () => {
     const { client } = fakeClient({ full: fakeResponse(EXAMPLE_FULL), main: fakeResponse(EXAMPLE_MAIN), published });
     const m = await measure("https://example.com/", client);
     expect(m.published).toEqual({ status: "not_offered" });
+  });
+
+  it("records when each step finished, so a saved result can show the times", async () => {
+    const { client } = fakeClient({ full: fakeResponse(EXAMPLE_FULL), main: fakeResponse(EXAMPLE_MAIN), published: fakeResponse(EXAMPLE_MAIN) });
+    const events: { type: string; ms: number }[] = [];
+    const m = await measure("https://example.com/", client, { onEvent: (e) => events.push(e) });
+    expect(m.steps).toEqual({ ...Object.fromEntries(events.map((e) => [e.type, e.ms])), total: expect.any(Number) });
+    expect(Object.keys(m.steps!).sort()).toEqual(["full", "main", "published", "total"]);
+    for (const e of events) expect(m.steps!.total).toBeGreaterThanOrEqual(e.ms);
+  });
+
+  it("records which steps context.dev answered from a copy it had already made", async () => {
+    const hit = { ...fakeResponse(EXAMPLE_FULL), cache_metadata: { status: "hit", age_ms: 60_000 } } as ReturnType<typeof fakeResponse>;
+    const { client } = fakeClient({ full: hit, main: fakeResponse(EXAMPLE_MAIN), published: fakeResponse(EXAMPLE_MAIN) });
+    const events: { type: string; cached?: boolean }[] = [];
+    const m = await measure("https://example.com/", client, { onEvent: (e) => events.push(e) });
+    expect(events.map((e) => [e.type, e.cached])).toEqual(expect.arrayContaining([["full", true], ["main", false], ["published", false]]));
+    expect(m.steps?.cached).toEqual(["full"]);
   });
 
   it("is 'offered' when the site publishes Markdown", async () => {
@@ -180,6 +201,63 @@ describe("declaredLinks", () => {
   local("links the Markdown version in the result when the site publishes one", async () => {
     const m = await measure("https://docs.context.dev/", pageClient("docs-context-dev").client);
     expect(m.published.url).toBe("https://docs.context.dev/introduction.md");
+  });
+});
+
+describe("heatLevels", () => {
+  // 40 lines of menu, then 40 lines of content, then 20 lines of footer, each line the same length.
+  const menu = Array.from({ length: 40 }, (_, i) => `[Menu link ${String(i).padStart(2, "0")}](https://example.com/m${i})`);
+  const content = Array.from({ length: 40 }, (_, i) => `Paragraph ${String(i).padStart(2, "0")} of the page's own text, with no links in it.`);
+  const footer = Array.from({ length: 20 }, (_, i) => `[Footer link ${String(i).padStart(2, "0")}](https://example.com/f${i})`);
+  const full = [...menu, ...content, ...footer].join("\n");
+  const main = content.join("\n");
+  const start = full.indexOf(content[0]);
+
+  it("gives one level per block, from 0 to HEAT_LEVELS", () => {
+    const heat = heatLevels(full, main, start);
+    expect(heat).toHaveLength(HEAT_CELLS);
+    expect(heat.every((l) => Number.isInteger(l) && l >= 0 && l <= HEAT_LEVELS)).toBe(true);
+  });
+
+  it("puts the main content where it is in the page, and nothing before or after it", () => {
+    const heat = heatLevels(full, main, start);
+    const first = heat.findIndex((l) => l > 0);
+    const last = heat.length - 1 - [...heat].reverse().findIndex((l) => l > 0);
+    // The content starts at the character where it starts in the page, and ends where it ends.
+    expect(first).toBe(Math.floor((start * HEAT_CELLS) / full.length));
+    const end = start + main.length;
+    expect(last).toBe(Math.floor((end * HEAT_CELLS) / full.length));
+    expect(heat.slice(first + 1, last).every((l) => l > 0)).toBe(true);
+  });
+
+  it("does not count a line before the content starts, even if the main content repeats it", () => {
+    const repeated = `${content[0]}\n${full}`;
+    const heat = heatLevels(repeated, main, repeated.indexOf(content[0], 1));
+    expect(heat[0]).toBe(0);
+  });
+
+  it("shows a page with no main content as all zeros", () => {
+    expect(heatLevels(menu.join("\n"), "", 0).every((l) => l === 0)).toBe(true);
+  });
+});
+
+describe("toLevels", () => {
+  it("keeps empty slices at 0, gives any content at least 1, and caps the densest at HEAT_LEVELS", () => {
+    // 20 typical slices and one outlier: the outlier must not wash out the rest.
+    const levels = toLevels([0, 1, ...Array(20).fill(10), 50]);
+    expect(levels[0]).toBe(0);
+    expect(levels[1]).toBe(1);
+    expect(levels[2]).toBe(HEAT_LEVELS);
+    expect(levels.at(-1)).toBe(HEAT_LEVELS);
+  });
+});
+
+describe("heatFromBreakdown", () => {
+  it("draws the three parts in order, for results saved before the heatmap", () => {
+    const heat = heatFromBreakdown({ before: 30, main: 60, after: 10 });
+    expect(heat).toHaveLength(HEAT_CELLS);
+    expect(heat.findIndex((l) => l > 0)).toBe(Math.round(0.3 * HEAT_CELLS));
+    expect(heat.filter((l) => l > 0)).toHaveLength(Math.round(0.6 * HEAT_CELLS));
   });
 });
 

@@ -1,9 +1,11 @@
 "use client";
 
 import { fileType } from "@/lib/files";
+import { MAP_LIMIT } from "@/lib/keypages";
 import { measuredAt, num, pct } from "@/lib/format";
+import { shareText } from "@/lib/share-text";
 import type { SitePageRun, SiteRun } from "./runs";
-import { ResultActions, RollingNumber, RunHeader, Skeleton, SmoothHeight, StepHeader, StepRow } from "./telemetry";
+import { ResultActions, RollingNumber, RunHeader, SiteLogo, Skeleton, SmoothHeight, StepHeader, StepRow } from "./telemetry";
 
 // One measured page or file: name, address, tokens. A page also shows its share of the total as a bar.
 function PageRow({ p, i, total, onOpenPage }: { p: SitePageRun; i: number; total: number | null; onOpenPage?: (url: string) => void }) {
@@ -47,7 +49,18 @@ function PageRow({ p, i, total, onOpenPage }: { p: SitePageRun; i: number; total
 }
 
 // The Site view: the total first, then one bar per key page, filling in as each page is measured.
-export function SitePanel({ run, onOpenPage, onMeasureAgain }: { run: SiteRun; onOpenPage?: (url: string) => void; onMeasureAgain?: () => void }) {
+// shared: the share page, where the page rows do not open.
+export function SitePanel({
+  run,
+  onOpenPage,
+  onMeasureAgain,
+  shared = false,
+}: {
+  run: SiteRun;
+  onOpenPage?: (url: string) => void;
+  onMeasureAgain?: () => void;
+  shared?: boolean;
+}) {
   const running = run.finishedAt === undefined;
   const failed = Boolean(run.error);
   const pages = run.pages ?? [];
@@ -56,20 +69,26 @@ export function SitePanel({ run, onOpenPage, onMeasureAgain }: { run: SiteRun; o
   const fileRows = pages.filter((p) => p.file);
   const total = pageRows.reduce((sum, p) => sum + (p.markdown?.tokens ?? 0), 0);
   const pagesDone = pages.filter((p) => p.state === "done" || p.state === "failed").length;
-  const lastPageMs = pagesDone === pages.length && pages.length > 0 && !run.saved ? Math.max(...pages.map((p) => p.ms ?? 0)) : undefined;
+  // When the last page finished. A result saved before 5 Nov has no page times.
+  const lastPageMs = pagesDone === pages.length && pages.length > 0 && pages.every((p) => p.ms !== undefined) ? Math.max(...pages.map((p) => p.ms!)) : undefined;
   const heaviest = run.result?.heaviest;
+  // Pages context.dev answered from a copy it had already made. When all were, step 04 shows "Cached copy", not a time.
+  const cachedPages = pages.filter((p) => p.cached).length;
 
   return (
     <article className="appear rounded-2xl border border-line bg-panel p-4 sm:p-5">
-      <RunHeader running={running} failed={failed} startedAt={run.startedAt} finishedAt={run.finishedAt} saved={run.saved} />
-      <p className="mt-1 font-mono text-xs text-muted">Key pages of {run.domain}</p>
+      <RunHeader running={running} failed={failed} startedAt={run.startedAt} finishedAt={run.finishedAt} />
+      <p className="mt-2.5 flex h-4 items-center gap-1.5 font-mono text-xs text-muted">
+        <SiteLogo src={run.result?.logo} />
+        Key pages of {run.domain}
+      </p>
 
       <SmoothHeight>
         {/* 1. The answer */}
         <div className="mt-4">
           <p className="label">Tokens to read your key pages</p>
           <RollingNumber value={pageRows.some((p) => p.markdown) ? total : null} className="mt-1 block text-5xl font-semibold tracking-tight" />
-          <p className="mt-1 text-sm text-muted">Tokens needed to read all these pages as Markdown, including menus and footers.</p>
+          <p className="mt-1 text-sm text-muted">Tokens needed to read all these pages as Markdown, including everything around their main content.</p>
           <div className="mt-3 h-11">
             <p className="text-xs text-muted">Most token-heavy page</p>
             {heaviest && total > 0 ? (
@@ -88,7 +107,7 @@ export function SitePanel({ run, onOpenPage, onMeasureAgain }: { run: SiteRun; o
         {pages.length === 0 && !failed && (
           <div className="mt-5 border-t border-line pt-4">
             <p className="label">Tokens per page</p>
-            <p className="mt-2 text-xs text-muted">Each bar is the page&apos;s share of the total. Click a page to see how much tokens are needed to read it.</p>
+            <p className="mt-2 text-xs text-muted">Each bar is the page&apos;s share of the total. Click a page to see how many tokens are needed to read it.</p>
             <ul className="mt-3 space-y-3">
               {[0, 1, 2, 3, 4].map((i) => (
                 <li key={i} className="py-1">
@@ -109,16 +128,16 @@ export function SitePanel({ run, onOpenPage, onMeasureAgain }: { run: SiteRun; o
             <p className="mt-2 text-xs text-muted">
               {run.picked?.source === "llms.txt" ? (
                 <>
-                  The first {pageRows.length} pages your{" "}
+                  Key pages from your{" "}
                   <a href={run.llms?.url ?? undefined} target="_blank" rel="noreferrer" className="text-accent-fg hover:underline">
                     llms.txt
-                  </a>{" "}
-                  lists.
+                  </a>
+                  .
                 </>
               ) : (
-                <>No llms.txt found, so we picked them by address: home, pricing, docs, quickstart, API reference and similar pages.</>
+                <>No llms.txt found, so we picked key pages by their address.</>
               )}{" "}
-              Each bar is the page&apos;s share of the total. Tap a page to see what its tokens are spent on.
+              Each bar is the page&apos;s share of the total.{!shared && " Click a page to see what its tokens are spent on."}
             </p>
             <ul className="mt-3 space-y-3">
               {pageRows.map((p, i) => (
@@ -141,24 +160,25 @@ export function SitePanel({ run, onOpenPage, onMeasureAgain }: { run: SiteRun; o
           </div>
         )}
 
-        {/* 3. How we got this: the live steps, always visible. */}
+        {/* 3. How the website was analysed: the live steps, always visible. */}
         <div className="mt-5 border-t border-line pt-4">
-          <p className="label">How we got this</p>
+          <p className="label">How the website was analysed</p>
           <div className="mt-2">
             <StepHeader />
             <StepRow
               n={1}
               name="Map the website"
-              hint="Map out all the pages on your website."
+              hint="List the page addresses on your website."
               state={run.map || run.picked ? "done" : failed ? "failed" : "live"}
               startedAt={run.startedAt}
               ms={run.map?.ms ?? run.picked?.ms}
-              detail={run.map ? `${num(run.map.urlCount)} found` : undefined}
+              // Map returns at most MAP_LIMIT addresses. At that number, the website has at least that many pages.
+              detail={run.map ? `${num(run.map.urlCount)}${run.map.urlCount >= MAP_LIMIT ? "+" : ""} found` : undefined}
             />
             <StepRow
               n={2}
               name="Look for llms.txt"
-              hint="Check for a file listing the pages a website wants AI tools to read."
+              hint="Check for a list of pages a website wants AI agents to read."
               state={run.llms || run.picked ? "done" : failed ? "failed" : run.map ? "live" : "waiting"}
               startedAt={run.startedAt}
               ms={run.llms?.ms ?? run.picked?.ms}
@@ -166,8 +186,8 @@ export function SitePanel({ run, onOpenPage, onMeasureAgain }: { run: SiteRun; o
             />
             <StepRow
               n={3}
-              name="Pick key pages"
-              hint="Choose pages and files listed in llms.txt, or else home, pricing, docs and API reference pages."
+              name="Choose what to measure"
+              hint={run.picked?.source === "pick" ? "Pick key pages like home, pricing, docs and API reference." : "Pick key pages and files from llms.txt."}
               state={run.picked ? "done" : failed ? "failed" : "waiting"}
               startedAt={run.startedAt}
               ms={run.picked?.ms}
@@ -176,28 +196,33 @@ export function SitePanel({ run, onOpenPage, onMeasureAgain }: { run: SiteRun; o
             <StepRow
               n={4}
               name="Load each page"
-              hint="Convert each page into Markdown."
+              hint="Open each page in a real browser, run its scripts, and convert it to Markdown."
               state={pagesDone === pages.length && pages.length > 0 ? "done" : failed ? "failed" : run.picked ? "live" : "waiting"}
               startedAt={run.startedAt}
               ms={lastPageMs}
-              detail={run.picked ? `${pagesDone} of ${pages.length}` : undefined}
+              cached={pages.length > 0 && cachedPages === pages.length}
+              detail={run.picked ? `${pagesDone} of ${pages.length}${cachedPages > 0 && cachedPages < pages.length ? `, ${cachedPages} cached` : ""}` : undefined}
             />
             <StepRow
               n={5}
-              name="Count and add up"
-              hint="Count each page's tokens with OpenAI's o200k tokenizer and add them up."
+              name="Count the tokens"
+              hint="Count each page's tokens and add them up."
               state={run.result ? "done" : failed ? "failed" : pagesDone > 0 ? "live" : "waiting"}
               startedAt={run.startedAt}
-              ms={run.finishedAt && !run.saved ? run.finishedAt - run.startedAt : undefined}
+              // The server's own time, like the steps above. Without it, the time this browser waited.
+              ms={run.result?.steps?.total ?? (run.finishedAt && run.finishedAt > run.startedAt ? run.finishedAt - run.startedAt : undefined)}
             />
           </div>
         </div>
 
         <div className="mt-4 min-h-8 border-t border-line pt-3 font-mono text-[11px] text-faint">
           {run.result ? (
-            <div className="fade flex items-center justify-between gap-3">
-              <p>Measured {measuredAt(run.result.measuredAt)}</p>
-              <ResultActions id={run.result.id} onMeasureAgain={run.saved ? onMeasureAgain : undefined} />
+            <div className="fade">
+              <div className="flex items-center justify-between gap-3">
+                <p>Measured on {measuredAt(run.result.measuredAt)}</p>
+                <ResultActions id={run.result.id} title={shareText({ kind: "site", result: run.result }).title} onMeasureAgain={run.saved ? onMeasureAgain : undefined} />
+              </div>
+              <p>Tokens counted with OpenAI&apos;s o200k tokenizer.</p>
             </div>
           ) : (
             <Skeleton className="h-2.5 w-1/3" />

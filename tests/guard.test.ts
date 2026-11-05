@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleMeasure, handleMeasureStream, handleSiteStream, type Guard } from "@/lib/api";
+import { websiteFrom } from "@/lib/keypages";
 import { addCredits, limitReached } from "@/lib/limits";
 import type { ScrapeClient } from "@/lib/measure";
-import { sharedResult } from "@/lib/results";
+import { cached, latestSite, sharedResult } from "@/lib/results";
 import type { SiteClient } from "@/lib/site";
 import { memoryStore, type Store } from "@/lib/store";
 import { exampleClient, fakeResponse } from "./helpers/fake-client";
@@ -111,6 +112,9 @@ describe("cache and share copy", () => {
     expect(shared?.kind === "page" && shared.result.markdown.tokens).toBe(result.markdown.tokens);
     expect(shared?.kind === "page" && shared.result.preview).toEqual([]);
     expect(shared?.kind === "page" && shared.result.readingOrder).toBeNull();
+    // The heatmap holds no page text, so the share copy keeps it for the share page and its preview image.
+    expect(result.heat?.length).toBeGreaterThan(0);
+    expect(shared?.kind === "page" && shared.result.heat).toEqual(result.heat);
   });
 
   it("caches a site result by domain", async () => {
@@ -207,5 +211,95 @@ describe("kill switch (LIVE_CHECKS=off)", () => {
     const res = await handleMeasure(new Request("http://localhost/api/measure?url=example.com/new"), client, { store, liveOff: true });
     expect(res.status).toBe(503);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("try chips", () => {
+  // A small stripe.com whose page size can change between runs.
+  function chipSite(words: { n: number }) {
+    let scrapes = 0;
+    const client = {
+      web: {
+        mapUrls: async () => ({ domain: "stripe.com", request_id: "t", success: true, urls: [{ url: "https://stripe.com/" }] }),
+        scrape: async () => (scrapes++, fakeResponse("word ".repeat(words.n), "")),
+      },
+    } as unknown as SiteClient;
+    return { client, scrapes: () => scrapes };
+  }
+  const run = (store: Store, client: SiteClient, fresh = false) =>
+    handleSiteStream(new Request(`http://localhost/api/site/stream?domain=stripe.com${fresh ? "&fresh=1" : ""}`), client, { store }).then(events);
+
+  it("keeps a chip's result after the 24-hour cache expires", async () => {
+    let now = Date.UTC(2026, 10, 6);
+    const store = memoryStore(() => now);
+    const words = { n: 100 };
+    const { client, scrapes } = chipSite(words);
+    const first = await run(store, client);
+    const used = scrapes();
+    now += 3 * 24 * HOUR;
+    const later = await run(store, client);
+    expect(scrapes()).toBe(used);
+    expect(later.map((e) => e.type)).toEqual(["done"]);
+    expect(later[0].result.id).toBe(first.at(-1).result.id);
+  });
+
+  it("replaces a chip's result on Measure again only when the total moves more than 10%", async () => {
+    const store = memoryStore();
+    const words = { n: 100 };
+    const { client } = chipSite(words);
+    const first = (await run(store, client)).at(-1).result;
+
+    words.n = 105;
+    await run(store, client, true);
+    expect((await run(store, client))[0].result.id).toBe(first.id);
+
+    words.n = 150;
+    const moved = (await run(store, client, true)).at(-1).result;
+    expect((await run(store, client))[0].result.id).toBe(moved.id);
+  });
+
+  it("makes a chip from a result already in the cache, with no new calls", async () => {
+    const store = memoryStore();
+    const { client, scrapes } = chipSite({ n: 100 });
+    // Measured before stripe.com was a chip: only the 24-hour cache holds it.
+    await store.set("cache:site:stripe.com", { id: "x", totalMarkdownTokens: 10 }, 60);
+    await run(store, client);
+    expect(scrapes()).toBe(0);
+    expect(await store.get("chip:site:stripe.com")).toMatchObject({ id: "x" });
+  });
+});
+
+describe("website in the address", () => {
+  it.each([
+    ["stripe.com", "stripe.com"],
+    ["Stripe.com", "stripe.com"],
+    ["www.stripe.com", "stripe.com"],
+    ["docs.stripe.com", "stripe.com"],
+    ["example.co.uk", "example.co.uk"],
+    ["https%3A%2F%2Fvercel.com", "vercel.com"],
+  ])("reads %s as %s", (param, website) => {
+    expect(websiteFrom(param)).toBe(website);
+  });
+
+  it.each(["localhost", "favicon", "127.0.0.1", "%E0%A4%A", "printer.local"])("rejects %s", (param) => {
+    expect(websiteFrom(param)).toBeNull();
+  });
+});
+
+describe("latest result for a website", () => {
+  it("keeps the last result after the 24-hour cache expires", async () => {
+    let now = Date.UTC(2026, 10, 6);
+    const store = memoryStore(() => now);
+    const client = {
+      web: {
+        mapUrls: async () => ({ domain: "example.com", request_id: "t", success: true, urls: [{ url: "https://example.com/" }] }),
+        scrape: async () => fakeResponse("word ".repeat(30), ""),
+      },
+    } as unknown as SiteClient;
+    const result = (await handleSiteStream(new Request("http://localhost/api/site/stream?domain=example.com"), client, { store }).then(events)).at(-1).result;
+    now += 3 * 24 * HOUR;
+    expect(await cached(store, "site", "example.com")).toBeNull();
+    expect((await latestSite(store, "example.com"))?.id).toBe(result.id);
+    expect(await latestSite(store, "never-measured.com")).toBeNull();
   });
 });

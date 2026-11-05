@@ -1,21 +1,23 @@
 import type { PageStreamEvent, SiteStreamEvent } from "@/lib/events";
-import type { KeyPage } from "@/lib/keypages";
+import { MAX_PAGES, type KeyPage } from "@/lib/keypages";
 import type { DeclaredLinks, Measurement, TextSize } from "@/lib/measure";
 import type { PageSource, SiteResult } from "@/lib/site";
 
 export type ApiError = { error: string; code: string };
 
 // What the page knows about a Page view run so far, built up from live events.
-// ms is when a step finished. It is missing for a saved result (cache or share link): no step ran now.
+// ms is when a step finished. A saved result (cache or share link) has the times of the check that made it,
+// or none if it was saved before 5 Nov.
 export interface PageRun {
   url: string;
   startedAt: number;
   finishedAt?: number;
   // True when the result came from the cache or a share link, with no live steps.
   saved?: boolean;
-  full?: { ms?: number; markdown: TextSize; html: TextSize; links: DeclaredLinks };
-  main?: { ms?: number; mainContent: TextSize | null };
-  published?: { ms?: number; published: Measurement["published"] };
+  // cached: context.dev answered with a copy it had already made, so the step shows "Cached copy", not a time.
+  full?: { ms?: number; markdown: TextSize; html: TextSize; links: DeclaredLinks; cached?: boolean };
+  main?: { ms?: number; mainContent: TextSize | null; cached?: boolean };
+  published?: { ms?: number; published: Measurement["published"]; cached?: boolean };
   result?: Measurement;
   error?: ApiError;
 }
@@ -23,6 +25,7 @@ export interface PageRun {
 export interface SitePageRun extends KeyPage {
   state: "waiting" | "live" | "done" | "failed";
   ms?: number;
+  cached?: boolean;
   markdown?: TextSize | null;
   error?: string;
 }
@@ -35,7 +38,8 @@ export interface SiteRun {
   map?: { ms: number; urlCount: number };
   // url is null when the site has no llms.txt we could read.
   llms?: { ms?: number; url: string | null };
-  picked?: { ms?: number; source: PageSource };
+  // max: the page limit of the check (MAX_KEY_PAGES).
+  picked?: { ms?: number; source: PageSource; max: number };
   pages?: SitePageRun[];
   result?: SiteResult;
   error?: ApiError;
@@ -56,26 +60,31 @@ export function applyPageEvent(run: PageRun, e: PageStreamEvent): PageRun {
   }
 }
 
-// A saved result arrives alone. Every step is done, with no step times.
+// A saved result arrives alone. Every step is done, with the times of the check that made it.
+// finishedAt equals startedAt when the result has no times.
 export function savedPageRun(run: PageRun, m: Measurement): PageRun {
+  const steps = m.steps;
+  const cached = (step: "full" | "main" | "published") => steps?.cached?.includes(step);
   return {
     ...run,
     saved: true,
-    finishedAt: run.startedAt,
-    full: { markdown: m.markdown, html: m.html, links: { markdown: m.published.url ?? null, llmsTxt: m.llmsTxt, otherMarkdown: null } },
-    main: { mainContent: m.mainContent },
-    published: { published: m.published },
+    finishedAt: run.startedAt + (steps?.total ?? 0),
+    full: { ms: steps?.full, cached: cached("full"), markdown: m.markdown, html: m.html, links: { markdown: m.published.url ?? null, llmsTxt: m.llmsTxt, otherMarkdown: null } },
+    main: { ms: steps?.main, cached: cached("main"), mainContent: m.mainContent },
+    published: { ms: steps?.published, cached: cached("published"), published: m.published },
     result: m,
   };
 }
 
 export function savedSiteRun(run: SiteRun, r: SiteResult): SiteRun {
+  const steps = r.steps;
   return {
     ...run,
     saved: true,
-    finishedAt: run.startedAt,
-    llms: { url: r.llmsTxt },
-    picked: { source: r.source },
+    finishedAt: run.startedAt + (steps?.total ?? 0),
+    map: steps?.map,
+    llms: { ms: steps?.llms, url: r.llmsTxt },
+    picked: { ms: steps?.picked, source: r.source, max: r.maxPages ?? MAX_PAGES },
     pages: r.pages.map((p) => ({ ...p, state: p.markdown ? "done" : "failed" })),
     result: r,
   };
@@ -88,13 +97,13 @@ export function applySiteEvent(run: SiteRun, e: SiteStreamEvent): SiteRun {
     case "llms":
       return { ...run, llms: { ms: e.ms, url: e.url } };
     case "picked":
-      return { ...run, picked: { ms: e.ms, source: e.source }, pages: e.pages.map((p) => ({ ...p, state: "waiting" })) };
+      return { ...run, picked: { ms: e.ms, source: e.source, max: e.max }, pages: e.pages.map((p) => ({ ...p, state: "waiting" })) };
     case "page-start":
       return { ...run, pages: run.pages?.map((p, i) => (i === e.index ? { ...p, state: "live" } : p)) };
     case "page":
       return {
         ...run,
-        pages: run.pages?.map((p, i) => (i === e.index ? { ...p, state: e.markdown ? "done" : "failed", ms: e.ms, markdown: e.markdown, error: e.error } : p)),
+        pages: run.pages?.map((p, i) => (i === e.index ? { ...p, state: e.markdown ? "done" : "failed", ms: e.ms, markdown: e.markdown, error: e.error, cached: e.cached } : p)),
       };
     case "done":
       return run.picked ? { ...run, result: e.result, finishedAt: Date.now() } : savedSiteRun(run, e.result);

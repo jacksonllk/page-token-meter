@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { llmsTxtCandidates, normalizeDomain, parseLlmsTxt, pickKeyPages, pool, siteDomain } from "@/lib/keypages";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { llmsTxtCandidates, maxKeyPages, normalizeDomain, parseLlmsTxt, pickKeyPages, pool, siteDomain } from "@/lib/keypages";
 import { handleSite } from "@/lib/api";
+import type { SiteEvent } from "@/lib/events";
 import { measureSite, type SiteClient } from "@/lib/site";
 import { fakeResponse } from "./helpers/fake-client";
 
@@ -61,9 +62,9 @@ function siteClient(urls: string[], markdownFor: (url: string) => string | Error
 }
 
 describe("pickKeyPages", () => {
-  it("picks up to 8 pages a technical buyer checks, in priority order", () => {
+  it("picks up to 8 pages in the ranked order: home, product, docs, pricing, API reference...", () => {
     const picks = pickKeyPages("example.com", URLS);
-    expect(picks.map((p) => p.role)).toEqual(["home", "pricing", "docs start", "quickstart", "API reference", "product", "integrations", "changelog"]);
+    expect(picks.map((p) => p.role)).toEqual(["home", "product", "docs start", "pricing", "API reference", "integrations", "about", "changelog"]);
     expect(picks.find((p) => p.role === "docs start")?.url).toBe("https://docs.example.com/");
   });
 
@@ -71,9 +72,14 @@ describe("pickKeyPages", () => {
     expect(pickKeyPages("example.com", URLS).find((p) => p.role === "API reference")?.url).toBe("https://docs.example.com/api-reference");
   });
 
-  it("never picks blog, about or customers pages", () => {
-    const urls = pickKeyPages("example.com", URLS, 20).map((p) => p.url);
-    expect(urls.some((u) => /blog|about|customers/.test(u))).toBe(false);
+  it("fills a services website with its service pages, About and Contact", () => {
+    const urls = ["https://law.com/", "https://law.com/services/divorce", "https://law.com/services/wills", "https://law.com/about", "https://law.com/contact", "https://law.com/faq"];
+    expect(pickKeyPages("law.com", urls).map((p) => p.role)).toEqual(["home", "product", "product", "about", "FAQ", "contact"]);
+  });
+
+  it("never picks sign-up, log-in, careers, blog, legal, status or sitemap pages", () => {
+    const urls = [...URLS, "https://example.com/signup", "https://example.com/login", "https://example.com/careers", "https://example.com/terms", "https://status.example.com/", "https://example.com/sitemap.md", "https://example.com/.well-known/oauth"];
+    expect(pickKeyPages("example.com", urls, 20).map((p) => p.url).filter((u) => /signup|login|careers|blog|terms|status|sitemap|well-known/.test(u))).toEqual([]);
   });
 
   it("adds the home page when Map does not list it", () => {
@@ -111,9 +117,58 @@ describe("parseLlmsTxt", () => {
     expect(parseLlmsTxt("Page not found\n- [Home](https://example.com/)", "example.com")).toEqual([]);
   });
 
+  it("ranks the pages it lists by role, using link text and section headings, then fills the rest in the owner's order", () => {
+    const text = [
+      "# Example",
+      "## Get started",
+      "- [Sitemap](https://example.com/sitemap.md)",
+      "- [Home](https://example.com)",
+      "- [Sign Up](https://example.com/signup)",
+      "- [Pricing](https://example.com/pricing)",
+      "- [Documentation](https://docs.example.com)",
+      "- [FAQ](https://example.com/faq)",
+      "## Agent authentication",
+      "- [auth.md](https://example.com/auth.md)",
+      "## Products",
+      "- [Widgets API](https://example.com/widgets-api)",
+      "- [Gadgets API](https://example.com/gadgets-api)",
+      "- [MCP Server](https://example.com/mcp)",
+      "## Core API endpoints",
+      "- [Create a widget](https://docs.example.com/api-reference/widgets/create)",
+      "## Learn",
+      "- [Integrations](https://example.com/integrations)",
+      "- [Glossary](https://example.com/glossary)",
+    ].join("\n");
+    expect(parseLlmsTxt(text, "example.com").map((p) => p.role)).toEqual([
+      "Home",
+      "Widgets API",
+      "Gadgets API",
+      "Documentation",
+      "Pricing",
+      "Create a widget",
+      "auth.md",
+      "Integrations",
+    ]);
+    expect(parseLlmsTxt(text, "example.com", 20).map((p) => p.role).slice(8)).toEqual(["FAQ", "MCP Server", "Glossary"]);
+  });
+
   it("stops at the page limit", () => {
     const many = ["# Big", ...Array.from({ length: 20 }, (_, i) => `- [Page ${i}](https://example.com/p${i})`)].join("\n");
     expect(parseLlmsTxt(many, "example.com")).toHaveLength(8);
+  });
+});
+
+describe("maxKeyPages", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("is 8 unless MAX_KEY_PAGES is set to a whole number above 0", () => {
+    expect(maxKeyPages()).toBe(8);
+    vi.stubEnv("MAX_KEY_PAGES", "20");
+    expect(maxKeyPages()).toBe(20);
+    for (const bad of ["0", "-3", "2.5", "lots"]) {
+      vi.stubEnv("MAX_KEY_PAGES", bad);
+      expect(maxKeyPages()).toBe(8);
+    }
   });
 });
 
@@ -172,6 +227,46 @@ describe("measureSite", () => {
     expect(site.pages).toHaveLength(8);
     expect(site.totalMarkdownTokens).toBe(site.pages.reduce((sum, p) => sum + (p.markdown?.tokens ?? 0), 0));
     expect(site.heaviest?.role).toBe("pricing");
+  });
+
+  it("measures more pages when MAX_KEY_PAGES is raised, and records the limit", async () => {
+    vi.stubEnv("MAX_KEY_PAGES", "12");
+    try {
+      const many = ["# Big", ...Array.from({ length: 20 }, (_, i) => `- [Page ${i}](https://example.com/p${i})`)].join("\n");
+      const { client } = siteClient(URLS, (url) => (url === "https://example.com/llms.txt" ? many : "word ".repeat(10)));
+      const site = await measureSite("example.com", client);
+      expect(site.pages).toHaveLength(12);
+      expect(site.maxPages).toBe(12);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("records when each step and each page finished, so a saved result can show the times", async () => {
+    const { client } = siteClient(URLS);
+    const events: SiteEvent[] = [];
+    const site = await measureSite("example.com", client, { onEvent: (e) => events.push(e) });
+    const at = (type: string) => events.find((e) => e.type === type)?.ms;
+    expect(site.steps).toEqual({ map: { ms: at("map"), urlCount: URLS.length }, llms: at("llms"), picked: at("picked"), total: expect.any(Number) });
+    for (const p of site.pages) expect(p.ms).toBeLessThanOrEqual(site.steps!.total);
+    expect(site.pages.map((p) => p.ms)).toEqual(site.pages.map((_, i) => events.find((e) => e.type === "page" && e.index === i)?.ms));
+  });
+
+  it("records which pages context.dev answered from a copy it had already made", async () => {
+    const { client } = siteClient(URLS);
+    const scrape = client.web.scrape;
+    client.web.scrape = (async (params: { url: string }) => {
+      const res = await scrape(params as never);
+      return params.url.endsWith("/pricing") ? { ...res, cache_metadata: { status: "hit", age_ms: 60_000 } } : res;
+    }) as unknown as typeof client.web.scrape;
+    const site = await measureSite("example.com", client);
+    expect(site.pages.filter((p) => p.cached).map((p) => p.role)).toEqual(["pricing"]);
+  });
+
+  it("keeps the first key page's logo", async () => {
+    const { client } = siteClient(URLS);
+    const site = await measureSite("example.com", client);
+    expect(site.logo).toBe("https://example.com/apple-touch-icon.png");
   });
 
   it("re-measures a saved page list without calling Map", async () => {

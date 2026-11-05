@@ -2,7 +2,7 @@
 
 # Page Token Meter
 
-**Your site's token budget.** Paste a URL. See how many tokens an AI agent needs to read your key pages.
+**See your website as AI agents see it.** Scan a URL to see the content AI agents get from your key pages and for how many tokens.
 
 [![Powered by context.dev](https://img.shields.io/badge/Powered%20by-context.dev-2663eb)](https://context.dev/?utm_source=page-token-meter&utm_medium=readme&utm_campaign=open-source)
 [![CI](https://github.com/jacksonllk/page-token-meter/actions/workflows/ci.yml/badge.svg)](https://github.com/jacksonllk/page-token-meter/actions/workflows/ci.yml)
@@ -12,9 +12,10 @@
 
 ## What it does
 
-- **Whole site.** Finds up to 8 key pages: the ones your llms.txt lists, or else home, pricing, docs and API reference. Shows the tokens for each page and the total.
+- **Whole website.** Finds your key pages: the ones your llms.txt lists, or else home, pricing, docs and API reference. Shows the tokens for each page and the total. The hosted site measures up to 8 pages per check. Your own copy can measure more (see `MAX_KEY_PAGES`).
 - **One page.** Splits a page's tokens into top menus, your content and footer. Shows how much an agent reads before it reaches your content.
-- **Markdown and llms.txt.** Checks whether your site publishes a Markdown version of the page and an llms.txt.
+- **Markdown and llms.txt.** Checks whether your website publishes a Markdown version of the page and an llms.txt.
+- **Any website from the address bar.** Open `page-token-meter.vercel.app/your-website.com` to measure it at once.
 - **Share links.** Every result has a link and a preview image for X, Slack and the like.
 - **JSON API.** Set a token budget and fail your CI when a page goes over it.
 
@@ -50,18 +51,18 @@ curl "http://localhost:3000/api/measure?url=docs.context.dev&maxTokens=3000"
   "measurement": {
     "url": "https://docs.context.dev/",
     "tokenizer": { "encoding": "o200k_base", "library": "js-tiktoken", "version": "1.0.21" },
-    "markdown": { "tokens": 2712, "chars": 11272 },
+    "markdown": { "tokens": 2714, "chars": 11272 },
     "mainContent": { "tokens": 1811, "chars": 7674 },
-    "breakdown": { "before": 826, "main": 1809, "after": 77 },
+    "breakdown": { "before": 828, "main": 1809, "after": 77 },
     "published": { "status": "offered", "tokens": 2350, "url": "https://docs.context.dev/introduction.md" },
-    "html": { "tokens": 164498, "chars": 469292 }
+    "html": { "tokens": 166162, "chars": 473521 }
     // ...
   },
-  "check": { "maxTokens": 3000, "tokens": 2712, "result": "pass" }
+  "check": { "maxTokens": 3000, "tokens": 2714, "result": "pass" }
 }
 ```
 
-For a whole site, use `/api/site?domain=context.dev&maxTokens=50000`. The budget applies to the total of the key pages.
+For a whole website, use `/api/site?domain=context.dev&maxTokens=50000`. The budget applies to the total of the key pages.
 
 To fail a CI step when a page goes over budget:
 
@@ -74,14 +75,16 @@ curl -s "$METER_URL/api/measure?url=docs.example.com&maxTokens=3000" | jq -e '.c
 | context.dev API | What we use it for |
 |---|---|
 | Scrape (`web.scrape`) | Each page as Markdown and HTML, and its main content only |
-| Map (`web.mapUrls`) | Finding the pages of a site |
+| Map (`web.mapUrls`) | Finding the pages of a website |
 
 | Check | Credits |
 |---|---|
 | One page | 2 (full page, main content) |
-| Whole site | 1 for the map, plus 1 per key page. 11 at most (8 pages and 2 files). |
+| Whole website | 1 for the map, plus 1 per key page. 11 at most with the default limit (8 pages and 2 files). |
 
-A page's own Markdown file and a site's llms.txt are plain text, so the app downloads them directly for free. It asks context.dev (1 more credit each) only when a site blocks that download. Repeat checks within 24 hours come from the cache and cost nothing.
+A page's own Markdown file and a website's llms.txt are plain text, so the app downloads them directly for free. It asks context.dev (1 more credit each) only when a website blocks that download. Repeat checks within 24 hours come from the cache and cost nothing.
+
+context.dev loads each page in a real browser. We always ask for a fresh load (`maxAgeMs: 0`), so a result shows the page as it is now. By default context.dev would answer with a copy up to 3 days old. A fresh load costs the same credit. If context.dev still answers from its cache, that step shows "Cached copy" instead of a time.
 
 ## Configuration
 
@@ -92,7 +95,8 @@ Copy `.env.example` to `.env`. Only the key is required.
 | `CONTEXT_DEV_API_KEY` | Your context.dev API key. Required. |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis for the 24-hour cache, share links and limits. Without them, these live in memory until the server restarts. |
 | `VISITOR_DAILY_CREDITS` | The most credits one visitor (IP address) can spend per day. Empty: no limit. |
-| `DAILY_CREDIT_CAP` | The most credits the whole site can spend per day. Empty: no limit. |
+| `DAILY_CREDIT_CAP` | The most credits the whole website can spend per day. Empty: no limit. |
+| `MAX_KEY_PAGES` | The most pages a Whole website check measures. Default 8. Each page costs 1 credit. Without an llms.txt, the app's own pick finds 10 pages at most. |
 | `LIVE_CHECKS` | Set to `off` to stop all context.dev calls. Saved results are still served. |
 
 ## Deploy your own
@@ -100,13 +104,14 @@ Copy `.env.example` to `.env`. Only the key is required.
 1. Import this repo into [Vercel](https://vercel.com/new).
 2. Add `CONTEXT_DEV_API_KEY`.
 3. Optional: in the project's **Storage** tab, add **Upstash for Redis** and connect it. Vercel sets its variables for you.
-4. If the site is public, set `VISITOR_DAILY_CREDITS` and `DAILY_CREDIT_CAP`. Every check spends your credits.
+4. If your copy is public, set `VISITOR_DAILY_CREDITS` and `DAILY_CREDIT_CAP`. Every check spends your credits.
 
 ## Limitations
 
 - Token counts are for OpenAI's o200k tokenizer only.
 - Where a page's main content starts is context.dev's estimate. The menus and footer split is approximate.
 - We measure what an agent would read as Markdown. We don't claim how any particular agent reads a page.
+- We load every page in a real browser. An agent that fetches a page without running its scripts may get less text than we measure.
 
 ## Contributing
 

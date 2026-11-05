@@ -2,7 +2,7 @@ import { clientIp, handleSite } from "@/lib/api";
 import { getClient, getTextFetch, liveChecksOff } from "@/lib/client";
 import { getStore } from "@/lib/store";
 
-// 1 Map call plus up to 8 scrapes, 2 at a time.
+// 1 Map call plus 1 scrape per key page (8 unless MAX_KEY_PAGES is set), 2 at a time.
 export const maxDuration = 120;
 
 export async function GET(request: Request) {

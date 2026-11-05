@@ -17,8 +17,8 @@ const siteUrl = process.env.SITE_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_U
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "Page Token Meter: your site's token budget",
-  description: "See how many tokens an AI agent needs to read your key pages. Open source, built with context.dev.",
+  title: "Page Token Meter: see your website as AI agents see it",
+  description: "Scan a URL to see the content AI agents get from your key pages and for how many tokens. Open source, built with context.dev.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

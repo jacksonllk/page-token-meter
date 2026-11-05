@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type ContextDev from "context.dev";
 import type { MeasureEvent } from "./events";
 import { fileType } from "./files";
+import { HEAT_CELLS, toLevels } from "./heat";
+import { pickLogo } from "./logo";
 import type { TextFetch } from "./plain-fetch";
 import { countTokens, TOKENIZER } from "./tokens";
 
@@ -49,6 +51,9 @@ export interface DeclaredLinks {
   otherMarkdown: string | null;
 }
 
+// cached: the steps context.dev answered from a copy it had already made.
+export type PageSteps = { full?: number; main?: number; published?: number; total: number; cached?: MeasureEvent["type"][] };
+
 export interface Measurement {
   id: string;
   url: string;
@@ -70,6 +75,14 @@ export interface Measurement {
   breakdown: Breakdown | null;
   // The whole page in reading order, as runs of main content and navigation. null when the main content is unknown.
   readingOrder: Run[] | null;
+  // The page heatmap (lib/heat.ts): HEAT_CELLS levels in reading order. No page text, so share copies keep it.
+  // null when the main content is unknown. Missing on results saved before 4 Nov.
+  heat?: number[] | null;
+  // When each step finished, in ms from the start, so a saved result shows the times of the check that made it.
+  // Missing on results saved before 5 Nov.
+  steps?: PageSteps;
+  // The website's logo (lib/logo.ts), from this page's HTML. null for a file. Missing on results saved before 5 Nov.
+  logo?: string | null;
   // Characters of navigation an agent reads before the main content. null when unknown.
   contentStartChar: number | null;
   // The first PREVIEW_CHARS characters of the Markdown, split into main content and navigation.
@@ -105,6 +118,14 @@ async function settle(p: Promise<ScrapeResponse>): Promise<ScrapeResponse | null
   }
 }
 
+// maxAgeMs 0: context.dev loads the page now instead of answering with a copy it saved (by default up to 3 days old).
+export const FRESH = 0;
+
+// True when context.dev answered with a copy it had already made, not a fresh load.
+export function fromCache(res: { cache_metadata?: { status: string } } | null | undefined): boolean {
+  return res?.cache_metadata?.status === "hit";
+}
+
 export async function measure(
   url: string,
   client: ScrapeClient,
@@ -112,14 +133,22 @@ export async function measure(
   // Without it, the published check is always a context.dev call (tests, fixture mode).
   options: { maxAgeMs?: number; onEvent?: (e: MeasureEvent) => void; fetchText?: TextFetch } = {},
 ): Promise<Measurement> {
-  const { maxAgeMs, onEvent, fetchText } = options;
+  // A fresh capture unless the caller says otherwise: context.dev's saved copy can be up to 3 days old.
+  const { maxAgeMs = FRESH, fetchText } = options;
   const started = Date.now();
   const ms = () => Date.now() - started;
+  // Sends each step as it finishes and notes when it finished.
+  const steps: Omit<PageSteps, "total"> = {};
+  const onEvent = (e: MeasureEvent) => {
+    steps[e.type] = e.ms;
+    if (e.cached) (steps.cached ??= []).push(e.type);
+    options.onEvent?.(e);
+  };
 
   // A file (an OpenAPI spec, a .md page...) has no menus or footer and no separate Markdown version.
   // One call is enough: all of it is content.
   const file = fileType(url);
-  if (file) return measureFile(url, file, client, { maxAgeMs, onEvent, ms });
+  if (file) return { ...(await measureFile(url, file, client, { maxAgeMs, onEvent, ms })), steps: { ...steps, total: ms() } };
 
   // 3 calls, at most 2 at a time (free tier limit). 1 credit each.
   // Each result is reported the moment it arrives.
@@ -134,13 +163,13 @@ export async function measure(
     const md = size(markdown);
     const html = size(full.html.success ? (full.html.data ?? "") : "");
     const links = declaredLinks(full);
-    onEvent?.({ type: "full", ms: ms(), markdown: md, html, links });
+    onEvent({ type: "full", ms: ms(), markdown: md, html, links, cached: fromCache(full) });
     return { full, markdown, md, html, links };
   });
   const mainDone = mainCall.then((main) => {
     const text = main?.markdown.success ? main.markdown.data : null;
     const mainContent = text === null ? null : size(text);
-    onEvent?.({ type: "main", ms: ms(), mainContent });
+    onEvent({ type: "main", ms: ms(), mainContent, cached: fromCache(main) });
     return { main, text, mainContent };
   });
 
@@ -178,7 +207,7 @@ export async function measure(
     publishedDone = askContextDev();
   }
   publishedDone = publishedDone.then((p) => {
-    onEvent?.({ type: "published", ms: ms(), published: p.published });
+    onEvent({ type: "published", ms: ms(), published: p.published, cached: fromCache(p.res) });
     return p;
   });
 
@@ -187,6 +216,7 @@ export async function measure(
   const split = contentStartChar !== null && text !== null;
   const breakdown = split ? splitTokens(markdown, text, contentStartChar, md.tokens) : null;
   const order = split ? readingOrder(markdown, text, contentStartChar) : null;
+  const heat = split ? heatLevels(markdown, text, contentStartChar) : null;
   return {
     id: randomUUID(),
     url,
@@ -200,10 +230,13 @@ export async function measure(
     llmsTxt: links.llmsTxt,
     breakdown,
     readingOrder: order,
+    heat,
     contentStartChar,
     preview,
     saved: false,
     creditsUsed: credits(full, main, res),
+    steps: { ...steps, total: ms() },
+    logo: pickLogo(full.html.success ? (full.html.data ?? "") : "", url),
   };
 }
 
@@ -220,7 +253,7 @@ async function measureFile(
   }
   const md = size(markdown);
   const html = size(full.html.success ? (full.html.data ?? "") : "");
-  onEvent?.({ type: "full", ms: ms(), markdown: md, html, links: { markdown: null, llmsTxt: null, otherMarkdown: null } });
+  onEvent?.({ type: "full", ms: ms(), markdown: md, html, links: { markdown: null, llmsTxt: null, otherMarkdown: null }, cached: fromCache(full) });
   onEvent?.({ type: "main", ms: ms(), mainContent: md });
   onEvent?.({ type: "published", ms: ms(), published: { status: "skipped" } });
   return {
@@ -236,6 +269,8 @@ async function measureFile(
     llmsTxt: null,
     breakdown: { before: 0, main: md.tokens, after: 0 },
     readingOrder: [{ main: true, tokens: md.tokens, chars: markdown.length + 1, text: firstLine(markdown) }],
+    // A file is all content: every slice counts.
+    heat: heatLevels(markdown, markdown, 0),
     contentStartChar: 0,
     preview: [{ text: markdown.slice(0, PREVIEW_CHARS) + "\n", main: true }],
     saved: false,
@@ -310,6 +345,29 @@ export function splitTokens(full: string, main: string, start: number, total: nu
   const before = countTokens(full.slice(0, start));
   const afterTokens = Math.min(countTokens(after), Math.max(0, total - before));
   return { before, main: Math.max(0, total - before - afterTokens), after: afterTokens };
+}
+
+// The page heatmap levels (lib/heat.ts), using the same line matching as splitTokens: a line counts as main content
+// when it is in the main content and at or after the start. Lines that span two slices are split between them.
+export function heatLevels(full: string, main: string, start: number): number[] {
+  const mainLines = new Set(main.split("\n").map(norm).filter(Boolean));
+  const bound = (i: number) => Math.round((i * full.length) / HEAT_CELLS);
+  const parts = Array.from({ length: HEAT_CELLS }, () => "");
+  let pos = 0;
+  for (const line of full.split("\n")) {
+    const text = line + "\n";
+    const end = pos + text.length;
+    const n = norm(line);
+    if (pos >= start && n !== "" && mainLines.has(n)) {
+      let i = Math.min(HEAT_CELLS - 1, Math.floor((pos * HEAT_CELLS) / Math.max(1, full.length)));
+      while (i > 0 && bound(i) > pos) i--;
+      for (; i < HEAT_CELLS && bound(i) < end; i++) {
+        parts[i] += text.slice(Math.max(0, bound(i) - pos), Math.max(0, (i === HEAT_CELLS - 1 ? end : bound(i + 1)) - pos));
+      }
+    }
+    pos = end;
+  }
+  return toLevels(parts.map(countTokens));
 }
 
 // Splits the full Markdown into runs of main content and navigation, top to bottom, using the same line matching.
