@@ -302,8 +302,8 @@ describe("measureSite", () => {
   });
 });
 
-describe("GET /api/site", () => {
-  const get = (query: string) => new Request(`http://localhost/api/site${query}`);
+describe("GET /api/website", () => {
+  const get = (query: string) => new Request(`http://localhost/api/website${query}`);
 
   it("returns the site result and a pass/fail check", async () => {
     const res = await handleSite(get("?domain=example.com&maxTokens=1"), siteClient(URLS).client);

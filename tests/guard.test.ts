@@ -18,7 +18,7 @@ async function events(res: Response) {
 }
 
 const pageStream = (store: Store, query = "?url=docs.context.dev", client = exampleClient().client, guard: Partial<Guard> = {}) =>
-  handleMeasureStream(new Request(`http://localhost/api/measure/stream${query}`), client, { store, ip: "1.2.3.4", ...guard });
+  handleMeasureStream(new Request(`http://localhost/api/page/stream${query}`), client, { store, ip: "1.2.3.4", ...guard });
 
 describe("memoryStore", () => {
   it("forgets a value after its ttl", async () => {
@@ -126,7 +126,7 @@ describe("cache and share copy", () => {
         scrape: async () => (scrapes++, fakeResponse("word ".repeat(20), "")),
       },
     } as unknown as SiteClient;
-    const run = () => handleSiteStream(new Request("http://localhost/api/site/stream?domain=www.example.com"), client, { store }).then(events);
+    const run = () => handleSiteStream(new Request("http://localhost/api/website/stream?domain=www.example.com"), client, { store }).then(events);
     await run();
     const used = scrapes;
     const again = await run();
@@ -208,7 +208,7 @@ describe("kill switch (LIVE_CHECKS=off)", () => {
     await pageStream(store).then(events);
     const { client, calls } = exampleClient();
     expect((await pageStream(store, undefined, client, { liveOff: true })).status).toBe(200);
-    const res = await handleMeasure(new Request("http://localhost/api/measure?url=example.com/new"), client, { store, liveOff: true });
+    const res = await handleMeasure(new Request("http://localhost/api/page?url=example.com/new"), client, { store, liveOff: true });
     expect(res.status).toBe(503);
     expect(calls).toHaveLength(0);
   });
@@ -227,7 +227,7 @@ describe("try chips", () => {
     return { client, scrapes: () => scrapes };
   }
   const run = (store: Store, client: SiteClient, fresh = false) =>
-    handleSiteStream(new Request(`http://localhost/api/site/stream?domain=stripe.com${fresh ? "&fresh=1" : ""}`), client, { store }).then(events);
+    handleSiteStream(new Request(`http://localhost/api/website/stream?domain=stripe.com${fresh ? "&fresh=1" : ""}`), client, { store }).then(events);
 
   it("serves a chip's saved result for a week, then the next click runs a live check", async () => {
     let now = Date.UTC(2026, 10, 6);
@@ -314,7 +314,7 @@ describe("latest result for a website", () => {
         scrape: async () => fakeResponse("word ".repeat(30), ""),
       },
     } as unknown as SiteClient;
-    const result = (await handleSiteStream(new Request("http://localhost/api/site/stream?domain=example.com"), client, { store }).then(events)).at(-1).result;
+    const result = (await handleSiteStream(new Request("http://localhost/api/website/stream?domain=example.com"), client, { store }).then(events)).at(-1).result;
     now += 3 * 24 * HOUR;
     expect(await cached(store, "site", "example.com")).toBeNull();
     expect((await latestSite(store, "example.com"))?.id).toBe(result.id);

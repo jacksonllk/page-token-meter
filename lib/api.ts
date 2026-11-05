@@ -148,7 +148,7 @@ async function live<C extends ScrapeClient | SiteClient, T extends Measurement |
 
 const noKey = () => json({ error: "The server has no CONTEXT_DEV_API_KEY set.", code: "NO_KEY" }, 500);
 
-// GET /api/measure/stream?url=...  Same checks as /api/measure, but sends each step as it finishes.
+// GET /api/page/stream?url=...  Same checks as /api/page, but sends each step as it finishes.
 // A saved result is sent as the "done" event alone, with no step events: nothing was fetched.
 export async function handleMeasureStream(request: Request, client: ScrapeClient | null, guard: Guard = {}): Promise<Response> {
   const url = normalizeUrl(new URL(request.url).searchParams.get("url"));
@@ -161,7 +161,7 @@ export async function handleMeasureStream(request: Request, client: ScrapeClient
   return eventStream((send) => live("page", url, guard, client, (c) => measure(url, c, { onEvent: send, fetchText: guard.fetchText })));
 }
 
-// GET /api/site/stream?domain=...
+// GET /api/website/stream?domain=...
 export async function handleSiteStream(request: Request, client: SiteClient | null, guard: Guard = {}): Promise<Response> {
   const host = normalizeDomain(new URL(request.url).searchParams.get("domain"));
   const domain = host && siteDomain(host);
@@ -174,7 +174,7 @@ export async function handleSiteStream(request: Request, client: SiteClient | nu
   return eventStream((send) => live("site", domain, guard, client, (c) => measureSite(domain, c, { onEvent: send, fetchText: guard.fetchText, pageExists: guard.pageExists })));
 }
 
-// GET /api/measure?url=...&maxTokens=...
+// GET /api/page?url=...&maxTokens=...
 export async function handleMeasure(request: Request, client: ScrapeClient | null, guard: Guard = {}): Promise<Response> {
   const params = new URL(request.url).searchParams;
   const url = normalizeUrl(params.get("url"));
@@ -200,7 +200,7 @@ export async function handleMeasure(request: Request, client: ScrapeClient | nul
   }
 }
 
-// GET /api/site?domain=...&maxTokens=...  maxTokens applies to the total of all key pages.
+// GET /api/website?domain=...&maxTokens=...  maxTokens applies to the total of all key pages.
 export async function handleSite(request: Request, client: SiteClient | null, guard: Guard = {}): Promise<Response> {
   const params = new URL(request.url).searchParams;
   const host = normalizeDomain(params.get("domain"));

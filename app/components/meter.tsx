@@ -93,7 +93,7 @@ export function Meter({ fixtures = false, initialDomain }: { fixtures?: boolean;
   // fresh: skip the 24-hour cache ("Measure again").
   async function runPage(url: string, fresh = false) {
     setPage({ url, startedAt: Date.now() });
-    const failed = await readEvents<PageStreamEvent>(`/api/measure/stream?url=${encodeURIComponent(url)}${fresh ? "&fresh=1" : ""}`, (ev) =>
+    const failed = await readEvents<PageStreamEvent>(`/api/page/stream?url=${encodeURIComponent(url)}${fresh ? "&fresh=1" : ""}`, (ev) =>
       setPage((run) => (run ? applyPageEvent(run, ev) : run)),
     );
     if (failed) setPage((run) => (run ? { ...run, error: failed, finishedAt: Date.now() } : run));
@@ -101,7 +101,7 @@ export function Meter({ fixtures = false, initialDomain }: { fixtures?: boolean;
 
   async function runSite(domain: string, fresh = false) {
     setSite({ domain, startedAt: Date.now() });
-    const failed = await readEvents<SiteStreamEvent>(`/api/site/stream?domain=${encodeURIComponent(domain)}${fresh ? "&fresh=1" : ""}`, (ev) =>
+    const failed = await readEvents<SiteStreamEvent>(`/api/website/stream?domain=${encodeURIComponent(domain)}${fresh ? "&fresh=1" : ""}`, (ev) =>
       setSite((run) => (run ? applySiteEvent(run, ev) : run)),
     );
     if (failed) setSite((run) => (run ? { ...run, error: failed, finishedAt: Date.now() } : run));

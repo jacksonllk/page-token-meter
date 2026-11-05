@@ -12,9 +12,9 @@ async function events(res: Response) {
     .map((line) => JSON.parse(line));
 }
 
-describe("GET /api/measure/stream", () => {
+describe("GET /api/page/stream", () => {
   it("sends each step, then the full result", async () => {
-    const res = await handleMeasureStream(new Request("http://localhost/api/measure/stream?url=docs.context.dev"), exampleClient().client);
+    const res = await handleMeasureStream(new Request("http://localhost/api/page/stream?url=docs.context.dev"), exampleClient().client);
     expect(res.headers.get("content-type")).toContain("ndjson");
     const list = await events(res);
     expect(list.map((e) => e.type).sort()).toEqual(["done", "full", "main", "published"]);
@@ -25,12 +25,12 @@ describe("GET /api/measure/stream", () => {
   it("ends with an error event when the page has no Markdown", async () => {
     const failed = fakeResponse(null);
     const client = { web: { scrape: async () => failed } } as unknown as ScrapeClient;
-    const list = await events(await handleMeasureStream(new Request("http://localhost/api/measure/stream?url=docs.context.dev"), client));
+    const list = await events(await handleMeasureStream(new Request("http://localhost/api/page/stream?url=docs.context.dev"), client));
     expect(list.at(-1)).toMatchObject({ type: "error", code: "FETCH_FAILED" });
   });
 
   it("rejects a bad URL before streaming", async () => {
-    const res = await handleMeasureStream(new Request("http://localhost/api/measure/stream?url=localhost"), exampleClient().client);
+    const res = await handleMeasureStream(new Request("http://localhost/api/page/stream?url=localhost"), exampleClient().client);
     expect(res.status).toBe(400);
   });
 });
@@ -57,7 +57,7 @@ describe("measure() credit safety", () => {
   });
 });
 
-describe("GET /api/site/stream", () => {
+describe("GET /api/website/stream", () => {
   it("sends the map, the llms.txt check, the picked pages, each page, then the result", async () => {
     const client = {
       web: {
@@ -65,7 +65,7 @@ describe("GET /api/site/stream", () => {
         scrape: async () => fakeResponse("word ".repeat(20), ""),
       },
     } as unknown as SiteClient;
-    const list = await events(await handleSiteStream(new Request("http://localhost/api/site/stream?domain=example.com"), client));
+    const list = await events(await handleSiteStream(new Request("http://localhost/api/website/stream?domain=example.com"), client));
     const types = list.map((e) => e.type);
     expect(types.slice(0, 3)).toEqual(["map", "llms", "picked"]);
     expect(types.filter((t) => t === "page")).toHaveLength(2);

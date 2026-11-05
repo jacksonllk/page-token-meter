@@ -61,10 +61,10 @@ The app runs at http://localhost:3000.
 
 ## API
 
-`/api/measure` checks one page. `/api/site` checks a whole website. Both return JSON. Set `METER_URL` to your copy's address, such as `http://localhost:3000`.
+`/api/page` checks one page. `/api/website` checks a whole website. Both return JSON. Set `METER_URL` to your copy's address, such as `http://localhost:3000`.
 
 ```bash
-curl "$METER_URL/api/measure?url=docs.context.dev&maxTokens=3000"
+curl "$METER_URL/api/page?url=docs.context.dev&maxTokens=3000"
 ```
 
 ```jsonc
@@ -83,16 +83,16 @@ curl "$METER_URL/api/measure?url=docs.context.dev&maxTokens=3000"
 }
 ```
 
-`maxTokens` is optional. With it, the response includes `check.result`, which is `pass` or `fail`. For `/api/site`, the budget applies to the total of all key pages:
+`maxTokens` is optional. With it, the response includes `check.result`, which is `pass` or `fail`. For `/api/website`, the budget applies to the total of all key pages:
 
 ```bash
-curl "$METER_URL/api/site?domain=context.dev&maxTokens=50000"
+curl "$METER_URL/api/website?domain=context.dev&maxTokens=50000"
 ```
 
 To fail a CI step when a page goes over budget:
 
 ```bash
-curl -s "$METER_URL/api/measure?url=docs.example.com&maxTokens=3000" | jq -e '.check.result == "pass"'
+curl -s "$METER_URL/api/page?url=docs.example.com&maxTokens=3000" | jq -e '.check.result == "pass"'
 ```
 
 ## Credits

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { handleMeasure, normalizeUrl } from "@/lib/api";
 import { exampleClient, fakeClient } from "./helpers/fake-client";
 
-const get = (query: string) => new Request(`http://localhost/api/measure${query}`);
+const get = (query: string) => new Request(`http://localhost/api/page${query}`);
 
 describe("normalizeUrl", () => {
   it.each([
@@ -32,7 +32,7 @@ describe("normalizeUrl", () => {
   });
 });
 
-describe("GET /api/measure", () => {
+describe("GET /api/page", () => {
   it("returns the measurement", async () => {
     const res = await handleMeasure(get("?url=docs.context.dev"), exampleClient().client);
     expect(res.status).toBe(200);

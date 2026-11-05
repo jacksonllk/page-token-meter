@@ -17,7 +17,7 @@ export function SharedView({ shared }: { shared: Shared }) {
   const [live, setLive] = useState<PageRun | null>(null);
   async function loadText(url: string) {
     setLive({ url, startedAt: Date.now() });
-    const failed = await readEvents<PageStreamEvent>(`/api/measure/stream?url=${encodeURIComponent(url)}`, (ev) => setLive((run) => (run ? applyPageEvent(run, ev) : run)));
+    const failed = await readEvents<PageStreamEvent>(`/api/page/stream?url=${encodeURIComponent(url)}`, (ev) => setLive((run) => (run ? applyPageEvent(run, ev) : run)));
     if (failed) setLive((run) => (run ? { ...run, error: failed, finishedAt: Date.now() } : run));
   }
   return (
