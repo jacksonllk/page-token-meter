@@ -38,13 +38,16 @@ export function chipResult(store: Store, domain: string): Promise<SiteResult | n
   return store.get<SiteResult>(chipKey(domain));
 }
 
-// Saves a new result for a chip when there is none yet, or when its total moved by more than CHIP_CHANGE. Returns whether it saved.
+// Saves a new result for a chip when there is none yet, when its pages changed, or when its total moved by more than CHIP_CHANGE.
+// Returns whether it saved.
 export async function updateChip(store: Store, domain: string, result: SiteResult): Promise<boolean> {
   const saved = await chipResult(store, domain);
   if (saved) {
     const change = Math.abs(result.totalMarkdownTokens - saved.totalMarkdownTokens) / Math.max(1, saved.totalMarkdownTokens);
-    if (change <= CHIP_CHANGE) return false;
-    console.log(`chip ${domain}: total changed ${Math.round(change * 100)}% (${saved.totalMarkdownTokens} -> ${result.totalMarkdownTokens}), replaced`);
+    // Different pages are a different measurement, whatever the total.
+    const samePages = saved.pages.map((p) => p.url).join(" ") === result.pages.map((p) => p.url).join(" ");
+    if (samePages && change <= CHIP_CHANGE) return false;
+    console.log(`chip ${domain}: ${samePages ? `total changed ${Math.round(change * 100)}%` : "pages changed"} (${saved.totalMarkdownTokens} -> ${result.totalMarkdownTokens}), replaced`);
   }
   await store.set(chipKey(domain), result);
   return true;

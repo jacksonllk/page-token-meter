@@ -80,8 +80,8 @@ describe("llms.txt without a context.dev call", () => {
     const { client, scraped } = siteClient();
     const site = await measureSite("example.com", client, { fetchText: answer({ status: "ok", text: LLMS }) });
     expect(site.source).toBe("llms.txt");
-    // Ranked: docs before pricing.
-    expect(scraped).toEqual(["https://example.com/docs", "https://example.com/pricing"]);
+    // Ranked: the home page (found by Map, not listed), then docs, then pricing.
+    expect(scraped).toEqual(["https://example.com/", "https://example.com/docs", "https://example.com/pricing"]);
   });
 
   it("picks pages itself when there is no llms.txt, without asking context.dev", async () => {

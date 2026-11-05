@@ -72,7 +72,7 @@ export async function measureSite(
     // The site's own list wins over our pick.
     // An llms.txt can add up to MAX_FILES files on top of the pages.
     for (const url of llmsTxtCandidates(domain, urls)) {
-      const listed = await readLlmsTxt(url);
+      const listed = await readLlmsTxt(url, urls);
       if (listed.length) {
         pages = listed;
         source = "llms.txt";
@@ -87,14 +87,14 @@ export async function measureSite(
   const picked = ms();
   onEvent?.({ type: "picked", ms: picked, pages, source, max });
 
-  async function readLlmsTxt(url: string): Promise<KeyPage[]> {
+  async function readLlmsTxt(url: string, urls: string[]): Promise<KeyPage[]> {
     const got = await fetchText?.(url);
-    if (got?.status === "ok") return parseLlmsTxt(got.text, domain, max);
+    if (got?.status === "ok") return parseLlmsTxt(got.text, domain, max, urls);
     if (got?.status === "missing") return [];
     try {
       const res = await client.web.scrape({ url, formats: { markdown: true }, sharedParams: { mainContentOnly: false }, maxAgeMs, tags: TAGS });
       used += credits(res);
-      return res.markdown.success && res.markdown.data ? parseLlmsTxt(res.markdown.data, domain, max) : [];
+      return res.markdown.success && res.markdown.data ? parseLlmsTxt(res.markdown.data, domain, max, urls) : [];
     } catch {
       return [];
     }

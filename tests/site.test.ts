@@ -64,8 +64,8 @@ function siteClient(urls: string[], markdownFor: (url: string) => string | Error
 describe("pickKeyPages", () => {
   it("picks up to 8 pages in the ranked order: home, product, docs, pricing, API reference...", () => {
     const picks = pickKeyPages("example.com", URLS);
-    expect(picks.map((p) => p.role)).toEqual(["home", "product", "docs start", "pricing", "API reference", "integrations", "about", "changelog"]);
-    expect(picks.find((p) => p.role === "docs start")?.url).toBe("https://docs.example.com/");
+    expect(picks.map((p) => p.role)).toEqual(["Home", "Product", "Docs", "Pricing", "API reference", "Integrations", "About", "Changelog"]);
+    expect(picks.find((p) => p.role === "Docs")?.url).toBe("https://docs.example.com/");
   });
 
   it("takes the shallowest address for a role", () => {
@@ -74,7 +74,7 @@ describe("pickKeyPages", () => {
 
   it("fills a services website with its service pages, About and Contact", () => {
     const urls = ["https://law.com/", "https://law.com/services/divorce", "https://law.com/services/wills", "https://law.com/about", "https://law.com/contact", "https://law.com/faq"];
-    expect(pickKeyPages("law.com", urls).map((p) => p.role)).toEqual(["home", "product", "product", "about", "FAQ", "contact"]);
+    expect(pickKeyPages("law.com", urls).map((p) => p.role)).toEqual(["Home", "Product", "Product", "About", "FAQ", "Contact"]);
   });
 
   it("never picks sign-up, log-in, careers, blog, legal, status or sitemap pages", () => {
@@ -84,7 +84,7 @@ describe("pickKeyPages", () => {
 
   it("adds the home page when Map does not list it", () => {
     const picks = pickKeyPages("example.com", ["https://example.com/pricing"]);
-    expect(picks[0]).toEqual({ role: "home", url: "https://example.com/" });
+    expect(picks[0]).toEqual({ role: "Home", url: "https://example.com/" });
   });
 
   it("never picks the same URL twice", () => {
@@ -96,6 +96,8 @@ describe("pickKeyPages", () => {
 describe("parseLlmsTxt", () => {
   it("returns the pages and files it lists on this site, in order, once each, before the Optional section", () => {
     expect(parseLlmsTxt(LLMS_TXT, "example.com")).toEqual([
+      // Not listed, but always measured.
+      { role: "Home", url: "https://example.com/" },
       { role: "Quickstart", url: "https://docs.example.com/quickstart" },
       { role: "API reference", url: "https://docs.example.com/api-reference" },
       { role: "OpenAPI spec", url: "https://example.com/openapi.json", file: true },
@@ -105,7 +107,7 @@ describe("parseLlmsTxt", () => {
   it("counts Markdown copies as pages, keeps at most 2 files and skips sitemaps", () => {
     const text = ["# Docs", "- [A](https://example.com/a.md)", "- [Spec](https://example.com/a.json)", "- [Spec 2](https://example.com/b.yaml)", "- [Full](https://example.com/llms-full.txt)", "- [Map](https://example.com/sitemap.xml)"].join("\n");
     const parsed = parseLlmsTxt(text, "example.com");
-    expect(parsed.filter((p) => !p.file).map((p) => p.url)).toEqual(["https://example.com/a.md"]);
+    expect(parsed.filter((p) => !p.file).map((p) => p.url)).toEqual(["https://example.com/", "https://example.com/a.md"]);
     expect(parsed.filter((p) => p.file)).toHaveLength(2);
   });
 
@@ -226,7 +228,20 @@ describe("measureSite", () => {
     expect(site.source).toBe("pick");
     expect(site.pages).toHaveLength(8);
     expect(site.totalMarkdownTokens).toBe(site.pages.reduce((sum, p) => sum + (p.markdown?.tokens ?? 0), 0));
-    expect(site.heaviest?.role).toBe("pricing");
+    expect(site.heaviest?.role).toBe("Pricing");
+  });
+
+  it("ignores addresses on other subdomains, such as a merch shop's /products", () => {
+    const picks = pickKeyPages("example.com", ["https://example.com/", "https://merch.example.com/products/t-shirt", "https://example.com/products/widgets"]);
+    expect(picks.filter((p) => p.role === "Product").map((p) => p.url)).toEqual(["https://example.com/products/widgets"]);
+  });
+
+  it("prefers a page whose address plays the role over a link only named for it", async () => {
+    const text = ["# Example", "## Endpoints", "- [Pricing](https://example.com/docs/endpoints/pricing.md)", "- [Slack app](https://example.com/slack-app.md)"].join("\n");
+    const picks = parseLlmsTxt(text, "example.com", 8, ["https://example.com/", "https://example.com/pricing"]);
+    expect(picks.find((p) => p.url.endsWith("/pricing"))?.role).toBe("Pricing");
+    expect(picks.map((p) => p.url)).toContain("https://example.com/docs/endpoints/pricing.md");
+    expect(picks.findIndex((p) => p.url === "https://example.com/pricing")).toBeLessThan(picks.findIndex((p) => p.url.endsWith("endpoints/pricing.md")));
   });
 
   it("measures more pages when MAX_KEY_PAGES is raised, and records the limit", async () => {
@@ -260,7 +275,7 @@ describe("measureSite", () => {
       return params.url.endsWith("/pricing") ? { ...res, cache_metadata: { status: "hit", age_ms: 60_000 } } : res;
     }) as unknown as typeof client.web.scrape;
     const site = await measureSite("example.com", client);
-    expect(site.pages.filter((p) => p.cached).map((p) => p.role)).toEqual(["pricing"]);
+    expect(site.pages.filter((p) => p.cached).map((p) => p.role)).toEqual(["Pricing"]);
   });
 
   it("keeps the first key page's logo", async () => {
@@ -279,25 +294,22 @@ describe("measureSite", () => {
   it("keeps going when one page fails", async () => {
     const { client } = siteClient(URLS, (url) => (url.endsWith("/pricing") ? new Error("timeout") : "word ".repeat(10)));
     const site = await measureSite("example.com", client);
-    const pricing = site.pages.find((p) => p.role === "pricing");
+    const pricing = site.pages.find((p) => p.role === "Pricing");
     expect(pricing?.error).toBeDefined();
     expect(pricing?.markdown).toBeNull();
     expect(site.pages.filter((p) => p.markdown)).toHaveLength(7);
   });
 
-  it("measures the pages the site's llms.txt lists, when it has one", async () => {
+  it("ranks the llms.txt pages together with the Map pages, keeping the llms.txt link text", async () => {
     const { client, scraped } = siteClient(URLS, (url) => (url === "https://example.com/llms.txt" ? LLMS_TXT : "word ".repeat(10)));
     const site = await measureSite("example.com", client);
     expect(site.source).toBe("llms.txt");
     expect(site.llmsTxt).toBe("https://example.com/llms.txt");
-    expect(site.pages.map((p) => p.role)).toEqual(["Quickstart", "API reference", "OpenAPI spec"]);
+    // Home and pricing come from Map: the llms.txt leaves them out. "API reference" is the llms.txt's own link.
+    expect(site.pages.map((p) => p.role)).toEqual(["Home", "Product", "Docs", "Pricing", "API reference", "Integrations", "About", "Changelog", "OpenAPI spec"]);
     // Found on the main site, so the docs subdomain is not checked.
-    expect(scraped).toEqual([
-      "https://example.com/llms.txt",
-      "https://docs.example.com/quickstart",
-      "https://docs.example.com/api-reference",
-      "https://example.com/openapi.json",
-    ]);
+    expect(scraped[0]).toBe("https://example.com/llms.txt");
+    expect(scraped).not.toContain("https://docs.example.com/llms.txt");
     // The file is measured but not added to the page total.
     const pageTokens = site.pages.filter((p) => !p.file).reduce((n, p) => n + (p.markdown?.tokens ?? 0), 0);
     expect(site.totalMarkdownTokens).toBe(pageTokens);

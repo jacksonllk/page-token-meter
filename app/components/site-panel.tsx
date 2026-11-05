@@ -128,7 +128,7 @@ export function SitePanel({
             <p className="mt-2 text-xs text-muted">
               {run.picked?.source === "llms.txt" ? (
                 <>
-                  Key pages from your{" "}
+                  Key pages, chosen with help from your{" "}
                   <a href={run.llms?.url ?? undefined} target="_blank" rel="noreferrer" className="text-accent-fg hover:underline">
                     llms.txt
                   </a>

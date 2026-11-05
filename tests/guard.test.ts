@@ -3,8 +3,8 @@ import { handleMeasure, handleMeasureStream, handleSiteStream, type Guard } from
 import { websiteFrom } from "@/lib/keypages";
 import { addCredits, limitReached } from "@/lib/limits";
 import type { ScrapeClient } from "@/lib/measure";
-import { cached, latestSite, sharedResult } from "@/lib/results";
-import type { SiteClient } from "@/lib/site";
+import { cached, latestSite, sharedResult, updateChip } from "@/lib/results";
+import type { SiteClient, SiteResult } from "@/lib/site";
 import { memoryStore, type Store } from "@/lib/store";
 import { exampleClient, fakeResponse } from "./helpers/fake-client";
 
@@ -256,6 +256,16 @@ describe("try chips", () => {
     words.n = 150;
     const moved = (await run(store, client, true)).at(-1).result;
     expect((await run(store, client))[0].result.id).toBe(moved.id);
+  });
+
+  it("replaces a chip's result when its pages change, whatever the total", async () => {
+    const store = memoryStore();
+    const old = { id: "old", domain: "stripe.com", pages: [{ role: "Sign Up", url: "https://stripe.com/signup" }], totalMarkdownTokens: 100 };
+    await store.set("chip:site:stripe.com", old);
+    const changed = { ...old, id: "new", pages: [{ role: "Home", url: "https://stripe.com/" }] };
+    expect(await updateChip(store, "stripe.com", changed as unknown as SiteResult)).toBe(true);
+    expect(await store.get("chip:site:stripe.com")).toMatchObject({ id: "new" });
+    expect(await updateChip(store, "stripe.com", { ...changed, id: "same" } as unknown as SiteResult)).toBe(false);
   });
 
   it("makes a chip from a result already in the cache, with no new calls", async () => {
