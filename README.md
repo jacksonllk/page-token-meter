@@ -10,15 +10,6 @@
 
 ![Page Token Meter measuring the key pages of context.dev](demo/screenshot.png)
 
-## What it does
-
-- **Whole website.** Finds your key pages: the ones your llms.txt lists, or else home, pricing, docs and API reference. Shows the tokens for each page and the total. The hosted site measures up to 8 pages per check. Your own copy can measure more (see `MAX_KEY_PAGES`).
-- **One page.** Splits a page's tokens into top menus, your content and footer. Shows how much an agent reads before it reaches your content.
-- **Markdown and llms.txt.** Checks whether your website publishes a Markdown version of the page and an llms.txt.
-- **Any website from the address bar.** Open `page-token-meter.vercel.app/your-website.com` to measure it at once.
-- **Share links.** Every result has a link and a preview image for X, Slack and the like.
-- **JSON API.** Set a token budget and fail your CI when a page goes over it.
-
 ## Quickstart
 
 You need Node.js 20.9 or later and a free [context.dev](https://context.dev/?utm_source=page-token-meter&utm_medium=readme&utm_campaign=open-source) account (1,000 credits a month, no card).
@@ -30,6 +21,14 @@ npm install && npm run dev
 ```
 
 Open http://localhost:3000.
+
+## What it does
+
+- **Whole website.** Finds your key pages, from your llms.txt or by their address. Shows the tokens for each page and the total. The hosted site measures up to 8 pages per check. Your own copy can measure more (see `MAX_KEY_PAGES`).
+- **One page.** Shows how many tokens an agent reads before, in and after the page's main content, with a heatmap of where the content sits.
+- **Markdown and llms.txt.** Checks whether your website publishes a Markdown version of the page and an llms.txt.
+- **Share links.** Every result has a link and a preview image for X, LinkedIn, Slack and the like. Open `page-token-meter.vercel.app/your-website.com` to measure a website straight from the address bar.
+- **JSON API.** Set a token budget and fail your CI when a page goes over it.
 
 ## How we count
 
@@ -109,7 +108,7 @@ Copy `.env.example` to `.env`. Only the key is required.
 ## Limitations
 
 - Token counts are for OpenAI's o200k tokenizer only.
-- Where a page's main content starts is context.dev's estimate. The menus and footer split is approximate.
+- The main content is context.dev's estimate. The split into before, main and after it is approximate.
 - We measure what an agent would read as Markdown. We don't claim how any particular agent reads a page.
 - We load every page in a real browser. An agent that fetches a page without running its scripts may get less text than we measure.
 

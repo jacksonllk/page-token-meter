@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { REPO_URL } from "@/lib/links";
+import { MAKER, REPO_URL } from "@/lib/links";
 import { GitHubIcon, MeterMark } from "./icons";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -37,7 +37,18 @@ export function SiteFooter() {
           <GitHubIcon className="size-3.5 text-fg" />
           View on <span className="font-medium text-fg">GitHub</span>
         </a>
-        <span className="ml-auto font-mono text-[11px] text-faint">MIT licence</span>
+        <span className="ml-auto flex items-center gap-3 font-mono text-[11px] text-faint">
+          <span>
+            Made by{" "}
+            <a href={MAKER.url} target="_blank" rel="noreferrer" className="text-muted underline-offset-2 transition hover:text-fg hover:underline">
+              {MAKER.name}
+            </a>
+          </span>
+          <span aria-hidden>·</span>
+          <a href={`${REPO_URL}/blob/main/LICENSE`} className="transition hover:text-fg">
+            MIT licence
+          </a>
+        </span>
       </div>
     </footer>
   );

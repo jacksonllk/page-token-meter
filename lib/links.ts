@@ -6,3 +6,5 @@ export function contextDevLink(spot: LinkSpot): string {
 }
 
 export const REPO_URL = "https://github.com/jacksonllk/page-token-meter";
+// The maker, credited in the footer.
+export const MAKER = { name: "Jackson Ling", url: "https://x.com/jackson_llk" };
