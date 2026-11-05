@@ -8,7 +8,12 @@ const SITES = ["context.dev", "posthog.com", "stripe.com", "vercel.com"];
 const file = (kind: "map" | "llms", domain: string) => `tests/fixtures/local/${kind}-${domain.replace(/\./g, "-")}.${kind === "map" ? "json" : "txt"}`;
 const saved = SITES.filter((d) => existsSync(file("map", d)));
 
-describe.skipIf(!saved.length).each(saved)("key pages of %s", (domain) => {
+// Without saved data (CI), one skipped test keeps the file valid: Vitest fails a file with no tests.
+describe.skipIf(saved.length > 0)("key pages of real websites", () => {
+  it.skip("needs Map lists recorded with scripts/record-maps.mts", () => {});
+});
+
+describe.each(saved)("key pages of %s", (domain) => {
   const urls: string[] = JSON.parse(readFileSync(file("map", domain), "utf8")).urls.map((u: { url: string }) => u.url);
   const llms = existsSync(file("llms", domain)) ? parseLlmsTxt(readFileSync(file("llms", domain), "utf8"), domain) : null;
   const picks = pickKeyPages(domain, urls, 8, llms?.pages ?? []);
