@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { declaredLinks, heatLevels, measure, MeasureError, navFooterShare, PREVIEW_CHARS, readingOrder, splitPreview, splitTokens } from "@/lib/measure";
-import { HEAT_CELLS, HEAT_LEVELS, heatFromBreakdown, toLevels } from "@/lib/heat";
+import { declaredLinks, measure, MeasureError, navFooterShare, PREVIEW_CHARS, readingOrder, splitPreview, splitTokens } from "@/lib/measure";
+import { HEAT_CELLS, heatFromBreakdown, heatLevels, linkSquares, squareAt, squareStart, tokensPerSquare } from "@/lib/heat";
 import { fileType } from "@/lib/files";
-import { countTokens } from "@/lib/tokens";
+import { countTokens, equalTokenStarts, tokenStarts } from "@/lib/tokens";
 import { EXAMPLE_FULL, EXAMPLE_MAIN, fakeClient, fakeResponse, fixture, HAS_SAVED_PAGES, pageClient } from "./helpers/fake-client";
 
 type Counts = { markdown: { tokens: number; chars: number }; html: { tokens: number; chars: number } };
@@ -204,56 +204,122 @@ describe("declaredLinks", () => {
   });
 });
 
+describe("equalTokenStarts", () => {
+  it("cuts text into runs of equal tokens, so wordy text takes more characters per square than links", () => {
+    const prose = "The quick brown fox jumps over the lazy dog again and again. ".repeat(40);
+    const links = "[Docs](https://example.com/a/very/long/address/for/the/docs/page) ".repeat(40);
+    const text = prose + links;
+    const starts = equalTokenStarts(text, HEAT_CELLS);
+    expect(starts).toHaveLength(HEAT_CELLS);
+    expect(starts[0]).toBe(0);
+    // Each square holds the same tokens, within one.
+    const per = starts.map((from, i) => countTokens(text.slice(from, starts[i + 1] ?? text.length)));
+    expect(Math.max(...per) - Math.min(...per)).toBeLessThanOrEqual(2);
+    // The prose squares cover more characters than the squares of links.
+    const width = (i: number) => (starts[i + 1] ?? text.length) - starts[i];
+    expect(width(5)).toBeGreaterThan(width(HEAT_CELLS - 5));
+  });
+
+  it("never cuts inside a character that spans two tokens", () => {
+    const text = "漢字のテキスト。".repeat(200);
+    for (const at of equalTokenStarts(text, HEAT_CELLS)) expect(text.slice(0, at)).not.toContain("\uFFFD");
+    expect(equalTokenStarts(text, HEAT_CELLS).at(-1)).toBeLessThan(text.length);
+  });
+});
+
 describe("heatLevels", () => {
-  // 40 lines of menu, then 40 lines of content, then 20 lines of footer, each line the same length.
+  // 40 lines of menu, then 40 lines of content, then 20 lines of footer.
   const menu = Array.from({ length: 40 }, (_, i) => `[Menu link ${String(i).padStart(2, "0")}](https://example.com/m${i})`);
   const content = Array.from({ length: 40 }, (_, i) => `Paragraph ${String(i).padStart(2, "0")} of the page's own text, with no links in it.`);
   const footer = Array.from({ length: 20 }, (_, i) => `[Footer link ${String(i).padStart(2, "0")}](https://example.com/f${i})`);
   const full = [...menu, ...content, ...footer].join("\n");
   const main = content.join("\n");
   const start = full.indexOf(content[0]);
+  const starts = equalTokenStarts(full, HEAT_CELLS);
+  const heat = heatLevels(full.length, readingOrder(full, main, start), starts);
 
-  it("gives one level per block, from 0 to HEAT_LEVELS", () => {
-    const heat = heatLevels(full, main, start);
+  it("marks each square as main content (1) or other text (0)", () => {
     expect(heat).toHaveLength(HEAT_CELLS);
-    expect(heat.every((l) => Number.isInteger(l) && l >= 0 && l <= HEAT_LEVELS)).toBe(true);
+    expect(heat.every((l) => l === 0 || l === 1)).toBe(true);
   });
 
-  it("puts the main content where it is in the page, and nothing before or after it", () => {
-    const heat = heatLevels(full, main, start);
-    const first = heat.findIndex((l) => l > 0);
-    const last = heat.length - 1 - [...heat].reverse().findIndex((l) => l > 0);
-    // The content starts at the character where it starts in the page, and ends where it ends.
-    expect(first).toBe(Math.floor((start * HEAT_CELLS) / full.length));
-    const end = start + main.length;
-    expect(last).toBe(Math.floor((end * HEAT_CELLS) / full.length));
-    expect(heat.slice(first + 1, last).every((l) => l > 0)).toBe(true);
+  it("shows the share of tokens before the main content as the share of grey squares before it", () => {
+    const first = heat.indexOf(1);
+    const before = countTokens(full.slice(0, start)) / countTokens(full);
+    expect(Math.abs(first / HEAT_CELLS - before)).toBeLessThan(2 / HEAT_CELLS);
+    const last = heat.lastIndexOf(1);
+    expect(heat.slice(first, last + 1).every((l) => l === 1)).toBe(true);
+    expect(heat.slice(last + 1).every((l) => l === 0)).toBe(true);
   });
 
   it("does not count a line before the content starts, even if the main content repeats it", () => {
     const repeated = `${content[0]}\n${full}`;
-    const heat = heatLevels(repeated, main, repeated.indexOf(content[0], 1));
-    expect(heat[0]).toBe(0);
+    const order = readingOrder(repeated, main, repeated.indexOf(content[0], 1));
+    expect(heatLevels(repeated.length, order, equalTokenStarts(repeated, HEAT_CELLS))[0]).toBe(0);
   });
 
-  it("shows a page with no main content as all zeros", () => {
-    expect(heatLevels(menu.join("\n"), "", 0).every((l) => l === 0)).toBe(true);
+  it("shows a page with no main content as all grey", () => {
+    const page = menu.join("\n");
+    expect(heatLevels(page.length, readingOrder(page, "", 0), equalTokenStarts(page, HEAT_CELLS)).every((l) => l === 0)).toBe(true);
+  });
+
+  it("finds the square that holds a character, with or without saved square starts", () => {
+    const m = { markdown: { chars: full.length }, squares: starts } as Parameters<typeof squareAt>[0];
+    expect(squareStart(m, squareAt(m, start))).toBeLessThanOrEqual(start);
+    expect(squareStart(m, squareAt(m, start) + 1)).toBeGreaterThan(start);
+    // Results saved before 6 Nov: squares of equal characters.
+    const old = { markdown: { chars: 1920 } } as Parameters<typeof squareAt>[0];
+    expect(squareAt(old, 25)).toBe(2);
+    expect(squareStart(old, HEAT_CELLS)).toBe(1920);
   });
 });
 
-describe("toLevels", () => {
-  it("keeps empty slices at 0, gives any content at least 1, and caps the densest at HEAT_LEVELS", () => {
-    // 20 typical slices and one outlier: the outlier must not wash out the rest.
-    const levels = toLevels([0, 1, ...Array(20).fill(10), 50]);
-    expect(levels[0]).toBe(0);
-    expect(levels[1]).toBe(1);
-    expect(levels[2]).toBe(HEAT_LEVELS);
-    expect(levels.at(-1)).toBe(HEAT_LEVELS);
+describe("linkSquares", () => {
+  const prose = "The quick brown fox jumps over the lazy dog again and again. ".repeat(40);
+  const links = "[Docs](https://example.com/a/very/long/address/for/the/docs/page) ".repeat(40);
+
+  it("counts the tokens of link addresses, not the link text", () => {
+    const text = "[Docs](https://example.com/docs)";
+    const { tokens } = linkSquares(text, tokenStarts(text));
+    expect(tokens).toBe(countTokens("https://example.com/docs"));
+  });
+
+  it("marks the squares that are mostly link addresses", () => {
+    const text = prose + links;
+    const { squares } = linkSquares(text, tokenStarts(text));
+    expect(squares).toHaveLength(HEAT_CELLS);
+    expect(squares.slice(0, 40).every((l) => l === 0)).toBe(true);
+    // A square that lands on the "[Docs](" part of a link is not mostly address, so most link squares are marked, not all.
+    expect(squares.slice(-40).filter((l) => l === 1).length).toBeGreaterThan(20);
+  });
+
+  it("finds no links in plain text", () => {
+    const { squares, tokens } = linkSquares(prose, tokenStarts(prose));
+    expect(tokens).toBe(0);
+    expect(squares.every((l) => l === 0)).toBe(true);
+  });
+});
+
+describe("tokenStarts", () => {
+  it("gives one start per token, in order, inside the text", () => {
+    const text = "Hello, world. 漢字のテキスト。 [a](https://example.com)";
+    const at = tokenStarts(text);
+    expect(at).toHaveLength(countTokens(text));
+    expect(at.every((p, i) => p >= (at[i - 1] ?? 0) && p < text.length)).toBe(true);
+  });
+});
+
+describe("tokensPerSquare", () => {
+  it("says what one square holds", () => {
+    expect(tokensPerSquare(2712)).toBe("Each square is about 14 tokens.");
+    expect(tokensPerSquare(250)).toBe("Each square is about 1 token.");
+    expect(tokensPerSquare(100)).toBe("Each square is less than 1 token.");
+    expect(tokensPerSquare(500_000)).toBe("Each square is about 2,604 tokens.");
   });
 });
 
 describe("heatFromBreakdown", () => {
-  it("draws the three parts in order, for results saved before the heatmap", () => {
+  it("draws the three parts in order, for results saved before the token map", () => {
     const heat = heatFromBreakdown({ before: 30, main: 60, after: 10 });
     expect(heat).toHaveLength(HEAT_CELLS);
     expect(heat.findIndex((l) => l > 0)).toBe(Math.round(0.3 * HEAT_CELLS));

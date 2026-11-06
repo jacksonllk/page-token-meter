@@ -13,7 +13,9 @@ export const sitePageFixture = (url: string) => {
 };
 
 // Fixture mode only: a short random wait, so the live progress view can be tried without credits.
-const wait = () => new Promise((r) => setTimeout(r, 400 + Math.random() * 1000));
+// PTM_FIXTURE_WAIT_MS sets the wait instead, such as 0 for the README demo.
+const WAIT_MS = process.env.PTM_FIXTURE_WAIT_MS;
+const wait = () => new Promise((r) => setTimeout(r, WAIT_MS !== undefined ? Number(WAIT_MS) : 400 + Math.random() * 1000));
 
 // Fixture mode only: each answer reports 1 credit, as a real call would, so the daily limits can be tried. Nothing is spent.
 const billed = <T extends object>(res: T) => ({ ...res, key_metadata: { credits_consumed: 1, credits_remaining: 0 } });

@@ -14,14 +14,14 @@
 
 </div>
 
-[![Page Token Meter measuring docs.context.dev: the heatmap, then pointing at blocks to see their text](demo/demo.gif)](https://page-token-meter.vercel.app)
+[![Page Token Meter measuring docs.context.dev: the token map, then pointing at squares to see their text](demo/demo.gif)](https://page-token-meter.vercel.app)
 
 Page Token Meter shows how many tokens an AI agent needs to read your website, and how much of that is your actual content. The hosted version is free at [page-token-meter.vercel.app](https://page-token-meter.vercel.app). It is built on [context.dev](https://context.dev/?utm_source=page-token-meter&utm_medium=readme&utm_campaign=open-source), which loads each page in a real browser and turns it into Markdown.
 
 ## What it does
 
 - **Whole website.** Measures your key pages, such as home, pricing, docs and the API reference. Shows the tokens for each page and the total.
-- **One page.** Splits a page's tokens into what comes before, in and after its main content. A heatmap shows where the content sits.
+- **One page.** Splits a page's tokens into what comes before, in and after its main content. A token map shows where the main content sits in the page's reading order.
 - **Markdown and llms.txt.** Checks whether your website publishes an llms.txt and a Markdown version of each page.
 - **Share links.** Every result gets a link with a preview image. To measure a website from the address bar, open `page-token-meter.vercel.app/your-website.com`.
 - **JSON API.** Set a token budget and fail CI when a page goes over it.
@@ -72,14 +72,14 @@ curl "$METER_URL/api/page?url=docs.context.dev&maxTokens=3000"
   "measurement": {
     "url": "https://docs.context.dev/",
     "tokenizer": { "encoding": "o200k_base", "library": "js-tiktoken", "version": "1.0.21" },
-    "markdown": { "tokens": 2714, "chars": 11272 },
+    "markdown": { "tokens": 2709, "chars": 11272 },
     "mainContent": { "tokens": 1811, "chars": 7674 },
-    "breakdown": { "before": 828, "main": 1809, "after": 77 },
+    "breakdown": { "before": 823, "main": 1809, "after": 77 },
     "published": { "status": "offered", "tokens": 2350, "url": "https://docs.context.dev/introduction.md" },
-    "html": { "tokens": 166162, "chars": 473521 }
+    "html": { "tokens": 164805, "chars": 467906 }
     // ...
   },
-  "check": { "maxTokens": 3000, "tokens": 2714, "result": "pass" }
+  "check": { "maxTokens": 3000, "tokens": 2709, "result": "pass" }
 }
 ```
 

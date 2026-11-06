@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.1 (6 Nov 2026)
+
+- One page check: the heatmap is now a token map. Each square is an equal share of the page's tokens. Blue squares are main content and grey squares are other text.
+- Green dots mark the squares that are mostly link URLs. A new row shows how much of the page's tokens are link URLs.
+- Click a square to see its text. Squares no longer respond to hover.
+
 ## v0.1.0 (6 Nov 2026)
 
 First public release.

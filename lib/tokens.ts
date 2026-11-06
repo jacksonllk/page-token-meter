@@ -24,3 +24,28 @@ export function tokenPieces(text: string): string[] {
   const enc = encoder;
   return enc.encode(text, [], []).map((t) => enc.decode([t]));
 }
+
+// Where each token starts in the text, in characters. A character that spans two tokens belongs to the first.
+export function tokenStarts(text: string): number[] {
+  encoder ??= new Tiktoken(o200k_base);
+  const enc = encoder;
+  const ids = enc.encode(text, [], []);
+  const starts: number[] = [];
+  let at = 0;
+  for (let i = 0; i < ids.length; ) {
+    let j = i + 1;
+    let piece = enc.decode(ids.slice(i, j));
+    while (j < ids.length && piece.endsWith("\uFFFD") && text[at + piece.length - 1] !== "\uFFFD") piece = enc.decode(ids.slice(i, ++j));
+    for (; i < j; i++) starts.push(at);
+    at = Math.min(text.length, at + piece.length);
+  }
+  return starts;
+}
+
+// Cuts text into `parts` runs of equal tokens and returns where each run starts, in characters.
+export function equalTokenStarts(text: string, parts: number, at: number[] = tokenStarts(text)): number[] {
+  return Array.from({ length: parts }, (_, i) => {
+    const k = Math.floor((i * at.length) / parts);
+    return k < at.length ? at[k] : text.length;
+  });
+}

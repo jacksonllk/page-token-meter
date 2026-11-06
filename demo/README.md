@@ -1,6 +1,6 @@
 # Demo
 
-`demo.gif` is the image at the top of the README: measuring one page (docs.context.dev), then pointing at its heatmap to see each block's text. 800 × 560, 50 frames a second.
+`demo.gif` is the image at the top of the README: measuring one page (docs.context.dev), then pointing at squares of its token map to see their text. 800 × 560, 50 frames a second.
 
 To make it again, run the app (`npm run build && npm start`), then:
 

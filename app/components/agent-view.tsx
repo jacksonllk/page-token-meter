@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { Measurement, Run } from "@/lib/measure";
 import { num } from "@/lib/format";
-import { HEAT_CELLS } from "@/lib/heat";
+import { HEAT_CELLS, squareAt, squareStart } from "@/lib/heat";
 
 const PLACEHOLDER_WIDTHS = ["w-1/2", "w-5/6", "w-2/3", "w-3/4", "w-1/3", "w-4/5", "w-3/5", "w-2/3", "w-1/2"];
 
@@ -18,9 +18,6 @@ const KIND: Record<Kind, { name: string; dot: string; mark: string }> = {
 // Where each run starts in the text, in characters.
 const charOffsets = (runs: Run[]) => runs.reduce<number[]>((acc, r, i) => [...acc, i ? acc[i - 1] + runs[i - 1].chars : 0], []);
 
-// Where a heatmap block starts in the text, in characters. Same slices as lib/measure.ts heatLevels.
-const blockStart = (i: number, chars: number) => Math.round((i * chars) / HEAT_CELLS);
-
 // Moves a character position back to the start of its word, or forward to the end of its word.
 const wordStart = (text: string, at: number) => {
   while (at > 0 && !/\s/.test(text[at - 1])) at--;
@@ -32,8 +29,8 @@ const wordEnd = (text: string, at: number) => {
 };
 
 // The page's text in reading order, main content dark and the rest dim.
-// point: the heatmap block being pointed at. Its text is highlighted and scrolled into view.
-// With no block pointed at, the highlight marks where the main content starts.
+// point: the token map square clicked. Its text is highlighted and scrolled into view.
+// With no square clicked, the highlight marks where the main content starts.
 export function AgentView({ m, point, fixtures = false }: { m: Measurement | null; point: number | null; fixtures?: boolean }) {
   const runs = m?.readingOrder ?? null;
   const before = m?.breakdown?.before;
@@ -42,18 +39,16 @@ export function AgentView({ m, point, fixtures = false }: { m: Measurement | nul
   // The text panel shows the first PREVIEW_CHARS characters. Runs line up with it by character offset.
   const text = m ? m.preview.map((s) => s.text).join("") : "";
   const offsets = runs ? charOffsets(runs) : [];
-  const chars = m?.markdown.chars ?? 0;
 
   // The highlighted stretch of text, whole words only, and which part of the page it is in.
   let mark: { from: number; to: number; kind: Kind } | null = null;
   if (m && runs && start !== null) {
     if (point === null) {
-      const block = Math.min(HEAT_CELLS - 1, Math.floor((start * HEAT_CELLS) / Math.max(1, chars)));
-      mark = { from: start, to: wordEnd(text, Math.max(start + 1, blockStart(block + 1, chars))), kind: "main" };
+      mark = { from: start, to: wordEnd(text, Math.max(start + 1, squareStart(m, squareAt(m, start) + 1))), kind: "main" };
     } else {
-      const from = wordStart(text, blockStart(point, chars));
+      const from = wordStart(text, squareStart(m, point));
       const level = m.heat?.[point] ?? 0;
-      mark = { from, to: wordEnd(text, Math.max(from + 1, blockStart(point + 1, chars))), kind: level > 0 ? "main" : from < start ? "before" : "after" };
+      mark = { from, to: wordEnd(text, Math.max(from + 1, squareStart(m, point + 1))), kind: level > 0 ? "main" : from < start ? "before" : "after" };
     }
   }
   const inPanel = mark ? mark.from < text.length : false;
@@ -120,7 +115,12 @@ export function AgentView({ m, point, fixtures = false }: { m: Measurement | nul
             <>
               <span className={`size-2 shrink-0 rounded-full ${KIND[mark.kind].dot}`} />
               <span className="shrink-0 text-muted">{point === null ? "The main content starts here" : KIND[mark.kind].name}</span>
-              {point !== null && <span className="text-faint">· block {point + 1} of {HEAT_CELLS}</span>}
+              {point !== null && (
+                <span className="text-faint">
+                  · square {point + 1} of {HEAT_CELLS}
+                  {m?.links?.squares[point] ? " · mostly links" : ""}
+                </span>
+              )}
               {!inPanel && <span className="truncate text-faint">· further down than the text shown</span>}
             </>
           ) : (

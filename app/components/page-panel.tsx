@@ -27,9 +27,9 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-// One part of the page, next to the heatmap: its share of the tokens, large and centred beside its name,
-// what it usually holds, and its tokens.
-function ZoneStat({ name, hint, tokens, total }: { name: string; hint: string; tokens: number | null; total: number | null }) {
+// One part of the page, next to the token map: its share of the tokens, large and centred beside its name,
+// what it usually holds, and its tokens. dot: marked with the map's link-address dot.
+function ZoneStat({ name, hint, tokens, total, dot = false }: { name: string; hint: string; tokens: number | null; total: number | null; dot?: boolean }) {
   return (
     <li className="flex items-center gap-3">
       <span className="w-16 shrink-0 font-mono text-3xl leading-none font-medium tracking-tight tabular-nums">
@@ -37,7 +37,10 @@ function ZoneStat({ name, hint, tokens, total }: { name: string; hint: string; t
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className="min-w-0 flex-1 text-xs font-medium">{name}</span>
+          <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium">
+            {dot && <span className="size-1.5 shrink-0 rounded-full bg-dot" />}
+            {name}
+          </span>
           <RollingNumber value={tokens} className="shrink-0 text-[11px] text-faint" />
         </span>
         <span className="block text-[11px] leading-snug text-faint">{hint}</span>
@@ -95,11 +98,11 @@ export function PagePanel({
   const result = run.result;
   const links = run.full?.links;
   const breakdown = result?.breakdown ?? null;
-  // Results saved before the heatmap existed get a coarser one from their three-part split.
+  // Results saved before the token map existed get a coarser one from their three-part split.
   const heat = result ? (result.heat ?? (breakdown ? heatFromBreakdown(breakdown) : null)) : null;
-  // The main-content call failed, so the page cannot be split, and there is no heatmap.
+  // The main-content call failed, so the page cannot be split, and there is no token map.
   const unsplit = Boolean(result && !breakdown);
-  // The heatmap block being pointed at, so the text panel below can show its text.
+  // The square clicked, so the text panel below can show its text.
   const [point, setPoint] = useState<number | null>(null);
   // A file (JSON, Markdown, text...) has no menus or footer: the main-content and Markdown-version steps are skipped.
   const file = fileType(run.url);
@@ -126,10 +129,10 @@ export function PagePanel({
               : "AI models read text in small pieces called tokens. This is how many tokens it takes to read this page as clean text (Markdown)."}
           </p>
 
-          {/* Where the content is: the page as a heatmap, next to its three parts. */}
-          {/* The key sits at the bottom of the right column, level with the heatmap's bottom edge. */}
+          {/* Where the content is: the page as a token map, next to its three parts. */}
+          {/* The key sits at the bottom of the right column, level with the map's bottom edge. */}
           <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:gap-5">
-            <Heatmap heat={heat} empty={unsplit} active={point} onPoint={shared ? undefined : setPoint} />
+            <Heatmap heat={heat} links={result?.links?.squares} empty={unsplit} active={point} onSelect={shared ? undefined : setPoint} />
             <div className="flex min-w-0 flex-1 flex-col justify-between gap-4">
               {file ? (
                 <p className="text-xs text-muted">A file has no menus or footer, so every token is content.</p>
@@ -147,17 +150,24 @@ export function PagePanel({
                     tokens={breakdown?.before ?? null}
                     total={md?.tokens ?? null}
                   />
-                  <ZoneStat name="Main content" hint="The page's own text: the article, docs or product copy." tokens={breakdown?.main ?? null} total={md?.tokens ?? null} />
+                  <ZoneStat name="Main content" hint="Articles, docs, product descriptions, and pricing." tokens={breakdown?.main ?? null} total={md?.tokens ?? null} />
                   <ZoneStat name="Read after main content" hint="Related links, sign-up boxes, the footer, and sidebars." tokens={breakdown?.after ?? null} total={md?.tokens ?? null} />
+                  {/* Not a fourth part: link addresses sit inside the three parts above, so this row is set apart. */}
+                  {(!result || result.links) && (
+                    <>
+                      <li aria-hidden className="border-t border-line" />
+                      <ZoneStat
+                        dot
+                        name="Links"
+                        hint="URL links on this page."
+                        tokens={result?.links?.tokens ?? null}
+                        total={md?.tokens ?? null}
+                      />
+                    </>
+                  )}
                 </ul>
               )}
-              <div className="space-y-1">
-                <HeatLegend />
-                <p className="text-[11px] text-faint">
-                  The page&rsquo;s text in the order an agent reads it.
-                  {!shared && !unsplit && " Point at a block to see its text below."}
-                </p>
-              </div>
+              <HeatLegend tokens={md?.tokens ?? null} links={!result || Boolean(result.links)} hint={!shared && !unsplit ? "Click a square to see its text below." : undefined} />
             </div>
           </div>
 
@@ -186,7 +196,7 @@ export function PagePanel({
           )}
         </div>
 
-        {/* 2. The page's text in reading order, showing the heatmap block being pointed at */}
+        {/* 2. The page's text in reading order, showing the square clicked */}
         {/* Every page result has this section. A share link keeps the numbers only, so the text is one click away. */}
         {shared ? (
           <section className="mt-5 border-t border-line pt-4">
@@ -222,7 +232,7 @@ export function PagePanel({
           <StepRow
             n={2}
             name="Find the main content"
-            hint={file ? "Skip this step. A file has no menus or footer." : "Separate the page's own text from its menus, sidebars and footer."}
+            hint={file ? "Skip this step. A file has no menus or footer." : "Separate the main content from the menus, sidebars and footer."}
             state={file && run.main ? "skipped" : mainMissing ? (fixtures ? "unsaved" : "failed") : stepState(run.main, running, failed)}
             startedAt={run.startedAt}
             ms={run.main?.ms}

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { num, pct } from "@/lib/format";
-import { HEAT_COLS, HEAT_LEVELS, HEAT_ROWS, heatFromBreakdown } from "@/lib/heat";
+import { HEAT_COLS, HEAT_ROWS, heatFromBreakdown, tokensPerSquare } from "@/lib/heat";
 import type { Measurement } from "@/lib/measure";
 import { shortUrl } from "@/lib/share-text";
 import type { SiteResult } from "@/lib/site";
@@ -16,7 +16,7 @@ const [regular, semibold, mono, logo, product] = await Promise.all([
   readFile(join(root, "app/og/fonts/Geist-SemiBold.ttf")),
   readFile(join(root, "app/og/fonts/GeistMono-Medium.ttf")),
   readFile(join(root, "app/apple-icon.png")),
-  // The top of the docs.context.dev page result in the app, 2x, from a live fresh capture on 5 Nov 2026 (2,714 tokens).
+  // The top of the docs.context.dev page result in the app, 2x, from a live fresh capture on 6 Nov 2026 (2,709 tokens).
   // Retake it from a live run when the result layout changes. Never with fixture times: fixture mode makes them up.
   readFile(join(root, "app/og/product.png")),
 ]);
@@ -39,6 +39,7 @@ const C = {
   accentDark: "#1d4ed8",
   accentSoft: "#eaf0ff",
   line: "#e3e7ef",
+  dot: "#4ade80",
 };
 
 // The brand and the card's content. Nothing else.
@@ -103,7 +104,7 @@ function Bar({ name, tokens, max, size = 30 }: { name: string; tokens: number; m
   );
 }
 
-// A One page result. The point: how many tokens the page takes, and where its main content sits, as the heatmap with its key.
+// A One page result. The point: how many tokens the page takes, and where its main content sits, as the token map with its key.
 // Not a judgement: the parts around the content are there for people.
 export function PageCard({ m, logo = null }: { m: Measurement; logo?: string | null }) {
   const b = m.breakdown;
@@ -121,34 +122,45 @@ export function PageCard({ m, logo = null }: { m: Measurement; logo?: string | n
           <div style={{ display: "flex", marginTop: 8, fontSize: 36, color: C.muted }}>tokens to read this page</div>
           {heat && (
             <div style={{ display: "flex", flexDirection: "column", marginTop: 44, gap: 14, fontSize: 28, color: C.muted }}>
-              {/* The heatmap's key, as under the heatmap in the app. */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                Less content
-                {HEAT_SHADES.map((shade) => (
-                  <div key={shade} style={{ display: "flex", width: 24, height: 24, borderRadius: 5, background: shade }} />
-                ))}
-                More content
+              {/* The map's key, as under the map in the app. */}
+              <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ display: "flex", width: 24, height: 24, borderRadius: 5, background: C.accent }} />
+                  Main content
+                </div>
+                {m.links && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ display: "flex", width: 12, height: 12, borderRadius: 12, background: C.dot }} />
+                    Links
+                  </div>
+                )}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ display: "flex", width: 24, height: 24, borderRadius: 5, background: C.track }} />
+                  Other text
+                </div>
               </div>
-              <div style={{ display: "flex" }}>The page&apos;s text in the order an agent reads it.</div>
+              <div style={{ display: "flex" }}>{tokensPerSquare(m.markdown.tokens)} This shows where the main content sits in the page&apos;s reading order.</div>
             </div>
           )}
         </div>
-        {heat && <HeatGrid heat={heat} />}
+        {heat && <HeatGrid heat={heat} links={m.links?.squares ?? null} />}
       </div>
     </Frame>
   );
 }
 
-// The page heatmap (lib/heat.ts), as on the result: read like text, darker blocks hold more main content.
-const HEAT_SHADES = [C.track, "#d4e0fb", "#b3c8f8", "#88a9f4", "#5182ef", C.accent];
-function HeatGrid({ heat }: { heat: number[] }) {
+// The token map (lib/heat.ts), as on the result: read like text. Grey is other text. Blue is main content.
+// A green dot: the square is mostly link URLs.
+function HeatGrid({ heat, links }: { heat: number[]; links: number[] | null }) {
   const rows = Array.from({ length: HEAT_ROWS }, (_, r) => heat.slice(r * HEAT_COLS, (r + 1) * HEAT_COLS));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: 14, borderRadius: 20, border: `2px solid ${C.line}` }}>
       {rows.map((row, r) => (
         <div key={r} style={{ display: "flex", gap: 4 }}>
           {row.map((level, c) => (
-            <div key={c} style={{ display: "flex", width: 21, height: 21, borderRadius: 4, background: HEAT_SHADES[Math.max(0, Math.min(HEAT_LEVELS, level))] }} />
+            <div key={c} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 21, height: 21, borderRadius: 4, background: level > 0 ? C.accent : C.track }}>
+              {links?.[r * HEAT_COLS + c] ? <div style={{ display: "flex", width: 7, height: 7, borderRadius: 7, background: C.dot }} /> : null}
+            </div>
           ))}
         </div>
       ))}

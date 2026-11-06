@@ -1,60 +1,82 @@
 "use client";
 
-import { HEAT_CELLS, HEAT_LEVELS } from "@/lib/heat";
+import { HEAT_CELLS, tokensPerSquare } from "@/lib/heat";
 
-// One shade per level, from no main content to the densest. Steps, not a smooth gradient: the pixel look.
-const SHADES = ["bg-track", "bg-accent/20", "bg-accent/35", "bg-accent/55", "bg-accent/80", "bg-accent"];
+// Grey: other text. Blue: main content. A green dot: the square's tokens are mostly link URLs.
+const OTHER = "bg-track";
+const MAIN = "bg-accent";
+// One light green for every dot: it stands out on the blue and the grey, in light and dark mode.
+const DOT = "absolute inset-[30%] rounded-full bg-dot";
 
-// The page as a heatmap (lib/heat.ts): its text in reading order, filled left to right and top to bottom.
-// Reading order, not screen layout: a sidebar that comes first in the code is drawn at the top. Darker means more main content.
-// heat null: still measuring (skeleton blocks), or "empty" when the page could not be split.
-// active and onPoint: pointing at a block, so the text panel below can show that part of the page.
+// The token map (lib/heat.ts): the page's tokens in reading order, in squares of equal tokens, filled left to right
+// and top to bottom. Reading order, not screen layout: a sidebar that comes first in the code is drawn at the top.
+// heat null: still measuring (skeleton squares), or "empty" when the page could not be split.
+// links: 1 for each square that is mostly link addresses. Missing on results saved before 6 Nov.
+// active and onSelect: the square clicked, so the text panel below can show that part of the page.
+// Clicking the selected square again clears it.
 export function Heatmap({
   heat,
+  links = null,
   empty = false,
   active = null,
-  onPoint,
+  onSelect,
 }: {
   heat: number[] | null;
+  links?: number[] | null;
   empty?: boolean;
   active?: number | null;
-  onPoint?: (i: number | null) => void;
+  onSelect?: (i: number | null) => void;
 }) {
   return (
     <div
       role="img"
-      aria-label={heat ? "Heatmap of the page: darker blocks hold more main content." : "Heatmap of the page, loading."}
-      onMouseLeave={() => onPoint?.(null)}
+      aria-label={heat ? `Token map of the page in reading order. Blue squares are main content. Grey squares are other text.${links ? " Squares with a green dot are mostly URL links." : ""}` : "Token map of the page, loading."}
       className={`relative grid w-[132px] shrink-0 grid-cols-12 gap-[2px] rounded-xl border border-line bg-panel p-2 sm:w-[168px] sm:gap-[3px] sm:p-2.5 ${!heat && !empty ? "breathe" : ""}`}
     >
-      {/* One animation for the whole grid, not one per block: 192 separate animations made scrolling stutter.
+      {/* One animation for the whole grid, not one per square: 192 separate animations made scrolling stutter.
           While loading, the grid breathes. Once measured, a cover slides away top to bottom, in reading order. */}
       {heat && <span aria-hidden className="heat-reveal pointer-events-none absolute inset-0 z-10 rounded-[11px] bg-panel motion-reduce:hidden" />}
       {Array.from({ length: HEAT_CELLS }, (_, i) => {
         if (!heat) return <span key={i} className={`aspect-square rounded-[2px] ${empty ? "fade bg-track/60" : "bg-track"}`} />;
-        const level = Math.max(0, Math.min(HEAT_LEVELS, heat[i] ?? 0));
+        const main = (heat[i] ?? 0) > 0;
         return (
           <span
             key={i}
-            onMouseEnter={onPoint && (() => onPoint(i))}
-            onClick={onPoint && (() => onPoint(i))}
-            className={`aspect-square rounded-[2px] ${SHADES[level]} ${active === i ? "ring-2 ring-fg/70 ring-offset-1 ring-offset-panel" : ""}`}
-          />
+            onClick={onSelect && (() => onSelect(active === i ? null : i))}
+            className={`relative aspect-square rounded-[2px] ${main ? MAIN : OTHER} ${onSelect ? "cursor-pointer hover:ring-1 hover:ring-fg/30 hover:ring-offset-1 hover:ring-offset-panel" : ""} ${active === i ? "ring-2 ring-fg/70 ring-offset-1 ring-offset-panel hover:ring-2 hover:ring-fg/70" : ""}`}
+          >
+            {links?.[i] ? <span className={DOT} /> : null}
+          </span>
         );
       })}
     </div>
   );
 }
 
-// The key under the heatmap: the six shades from less to more content.
-export function HeatLegend() {
+// The key under the token map, and what one square holds. tokens: the page's tokens, null while measuring.
+// links: whether the map shows link URLs: while measuring, and on results saved from 6 Nov.
+export function HeatLegend({ tokens, links = false, hint }: { tokens: number | null; links?: boolean; hint?: string }) {
   return (
-    <p className="flex items-center gap-1.5 text-[11px] text-faint">
-      Less content
-      {SHADES.map((s) => (
-        <span key={s} className={`size-2.5 rounded-[2px] ${s}`} />
-      ))}
-      More content
-    </p>
+    <div className="space-y-1 text-[11px] text-faint">
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="flex items-center gap-1.5">
+          <span className={`size-2.5 rounded-[2px] ${MAIN}`} />
+          Main content
+        </span>
+        {links && (
+          <span className="flex items-center gap-1.5">
+            <span className="size-1.5 rounded-full bg-dot" />
+            Links
+          </span>
+        )}
+        <span className="flex items-center gap-1.5">
+          <span className={`size-2.5 rounded-[2px] ${OTHER}`} />
+          Other text
+        </span>
+      </p>
+      <p>
+        {tokens !== null && `${tokensPerSquare(tokens)} `}This shows where the main content sits in the page&rsquo;s reading order.{hint && ` ${hint}`}
+      </p>
+    </div>
   );
 }

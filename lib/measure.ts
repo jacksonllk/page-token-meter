@@ -2,10 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import type ContextDev from "context.dev";
 import type { MeasureEvent } from "./events";
 import { fileType } from "./files";
-import { HEAT_CELLS, toLevels } from "./heat";
+import { HEAT_CELLS, heatLevels, linkSquares } from "./heat";
 import { pickLogo } from "./logo";
 import type { TextFetch } from "./plain-fetch";
-import { countTokens, TOKENIZER } from "./tokens";
+import { countTokens, equalTokenStarts, TOKENIZER, tokenStarts } from "./tokens";
 
 // How much of the Markdown the text panel under the reading-order map shows.
 export const PREVIEW_CHARS = 40000;
@@ -75,9 +75,14 @@ export interface Measurement {
   breakdown: Breakdown | null;
   // The whole page in reading order, as runs of main content and navigation. null when the main content is unknown.
   readingOrder: Run[] | null;
-  // The page heatmap (lib/heat.ts): HEAT_CELLS levels in reading order. No page text, so share copies keep it.
+  // The token map (lib/heat.ts): HEAT_CELLS squares in reading order, 1 for main content. No page text, so share copies keep it.
   // null when the main content is unknown. Missing on results saved before 4 Nov.
   heat?: number[] | null;
+  // Where each square of the token map starts in the Markdown, in characters. Missing on results saved before 6 Nov.
+  squares?: number[] | null;
+  // The token map squares whose tokens are mostly link addresses (1), and how many tokens are link addresses.
+  // Missing on results saved before 6 Nov.
+  links?: { squares: number[]; tokens: number } | null;
   // When each step finished, in ms from the start, so a saved result shows the times of the check that made it.
   // Missing on results saved before 5 Nov.
   steps?: PageSteps;
@@ -216,7 +221,9 @@ export async function measure(
   const split = contentStartChar !== null && text !== null;
   const breakdown = split ? splitTokens(markdown, text, contentStartChar, md.tokens) : null;
   const order = split ? readingOrder(markdown, text, contentStartChar) : null;
-  const heat = split ? heatLevels(markdown, text, contentStartChar) : null;
+  const tokenAt = tokenStarts(markdown);
+  const squares = equalTokenStarts(markdown, HEAT_CELLS, tokenAt);
+  const heat = order ? heatLevels(markdown.length, order, squares) : null;
   return {
     id: randomUUID(),
     url,
@@ -231,6 +238,8 @@ export async function measure(
     breakdown,
     readingOrder: order,
     heat,
+    squares,
+    links: linkSquares(markdown, tokenAt),
     contentStartChar,
     preview,
     saved: false,
@@ -269,8 +278,10 @@ async function measureFile(
     llmsTxt: null,
     breakdown: { before: 0, main: md.tokens, after: 0 },
     readingOrder: [{ main: true, tokens: md.tokens, chars: markdown.length + 1, text: firstLine(markdown) }],
-    // A file is all content: every slice counts.
-    heat: heatLevels(markdown, markdown, 0),
+    // A file is all content: every square is main content.
+    heat: Array<number>(HEAT_CELLS).fill(1),
+    squares: equalTokenStarts(markdown, HEAT_CELLS),
+    links: linkSquares(markdown, tokenStarts(markdown)),
     contentStartChar: 0,
     preview: [{ text: markdown.slice(0, PREVIEW_CHARS) + "\n", main: true }],
     saved: false,
@@ -345,29 +356,6 @@ export function splitTokens(full: string, main: string, start: number, total: nu
   const before = countTokens(full.slice(0, start));
   const afterTokens = Math.min(countTokens(after), Math.max(0, total - before));
   return { before, main: Math.max(0, total - before - afterTokens), after: afterTokens };
-}
-
-// The page heatmap levels (lib/heat.ts), using the same line matching as splitTokens: a line counts as main content
-// when it is in the main content and at or after the start. Lines that span two slices are split between them.
-export function heatLevels(full: string, main: string, start: number): number[] {
-  const mainLines = new Set(main.split("\n").map(norm).filter(Boolean));
-  const bound = (i: number) => Math.round((i * full.length) / HEAT_CELLS);
-  const parts = Array.from({ length: HEAT_CELLS }, () => "");
-  let pos = 0;
-  for (const line of full.split("\n")) {
-    const text = line + "\n";
-    const end = pos + text.length;
-    const n = norm(line);
-    if (pos >= start && n !== "" && mainLines.has(n)) {
-      let i = Math.min(HEAT_CELLS - 1, Math.floor((pos * HEAT_CELLS) / Math.max(1, full.length)));
-      while (i > 0 && bound(i) > pos) i--;
-      for (; i < HEAT_CELLS && bound(i) < end; i++) {
-        parts[i] += text.slice(Math.max(0, bound(i) - pos), Math.max(0, (i === HEAT_CELLS - 1 ? end : bound(i + 1)) - pos));
-      }
-    }
-    pos = end;
-  }
-  return toLevels(parts.map(countTokens));
 }
 
 // Splits the full Markdown into runs of main content and navigation, top to bottom, using the same line matching.

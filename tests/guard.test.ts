@@ -112,7 +112,7 @@ describe("cache and share copy", () => {
     expect(shared?.kind === "page" && shared.result.markdown.tokens).toBe(result.markdown.tokens);
     expect(shared?.kind === "page" && shared.result.preview).toEqual([]);
     expect(shared?.kind === "page" && shared.result.readingOrder).toBeNull();
-    // The heatmap holds no page text, so the share copy keeps it for the share page and its preview image.
+    // The token map holds no page text, so the share copy keeps it for the share page and its preview image.
     expect(result.heat?.length).toBeGreaterThan(0);
     expect(shared?.kind === "page" && shared.result.heat).toEqual(result.heat);
   });
